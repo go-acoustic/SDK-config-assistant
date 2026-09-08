@@ -1,0 +1,13 @@
+{
+  "name": "SDK-config-assistant",
+  "owner": {
+    "name": "Acoustic"
+  },
+  "plugins": [
+    {
+      "name": "sdk-config-assistant",
+      "source": "./",
+      "description": "Inspects a live website and generates a ready-to-test Acoustic Connect JavaScript SDK signal configuration."
+    }
+  ]
+}

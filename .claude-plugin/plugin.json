@@ -1,0 +1,8 @@
+{
+  "name": "sdk-config-assistant",
+  "version": "1.0.0",
+  "description": "Inspects a live website and generates a ready-to-test Acoustic Connect JavaScript SDK signal configuration, with guided validation and CMS upload.",
+  "author": {
+    "name": "Acoustic"
+  }
+}

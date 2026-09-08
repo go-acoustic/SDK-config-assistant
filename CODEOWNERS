@@ -1,0 +1,5 @@
+# Code owners for the SDK Config Assistant skill.
+# A review from @go-acoustic/sdk-services is required on every pull request to main —
+# main's branch protection has "require review from code owners" enabled.
+
+* @go-acoustic/sdk-services

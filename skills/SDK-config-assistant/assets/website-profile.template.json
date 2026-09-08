@@ -1,0 +1,129 @@
+{
+  "customer": {
+    "name": "Example Customer",
+    "productionDomain": "www.example.com",
+    "stagingDomain": "",
+    "appKey": "TODO",
+    "collectorUrl": "TODO",
+    "platform": "custom-ecommerce",
+    "dataLayerName": "dataLayer"
+  },
+  "acoustic": {
+    "_note": "Populated automatically after SDK upload. Reused on subsequent runs — no browser re-discovery needed.",
+    "subscriptionId": "",
+    "assetUuid": "",
+    "deliveryUrl": "",
+    "contentHost": ""
+  },
+  "settings": {
+    "mode": "test",
+    "implementationMode": "website-assisted",
+    "emailCapture": "session-after-consent",
+    "conversionType": "order",
+    "searchParameter": "q"
+  },
+  "inspection": {
+    "round": 0,
+    "dataLayerAvailable": null,
+    "dataLayerEvents": [],
+    "ecommerceSchema": null,
+    "_ecommerceSchemaNote": "Set to 'ga4' (ecommerce.items[]), 'ua' (ecommerce.detail/add/purchase.products[]), or 'custom'. Detected automatically during onboarding.",
+    "ecommerceEventMap": {
+      "_note": "Maps signal type → actual dataLayer event name discovered on this site",
+      "productView": "",
+      "addToCart": "",
+      "order": "",
+      "removedFromCart": "",
+      "_removedFromCartNote": "Set to the dataLayer event name observed when a product is removed from the cart (e.g. 'remove_from_cart', 'cartRemove'). Leave empty if no such event is detected — the skill will document this as unverified in the implementation review. When set, the value is automatically added to GAeventsAllowList and a dual-branch enhance is generated for the addToCart signal block."
+    },
+    "ecommerceItemsPath": "",
+    "_ecommerceItemsPathNote": "For 'custom' schema only: dot-path from ecommerce object to items array, e.g. 'detail.products'",
+    "findings": []
+  },
+  "pageCategoryRules": [
+    {
+      "category": "homepage",
+      "pathPattern": "^/$",
+      "confidence": 100
+    }
+  ],
+  "signals": {
+    "pageView": {
+      "enabled": true,
+      "triggerType": "load",
+      "triggers": [],
+      "fields": {}
+    },
+    "identification": {
+      "enabled": false,
+      "triggerType": "dataLayer",
+      "dataLayerEvent": "",
+      "triggers": [],
+      "fields": {}
+    },
+    "accountRegistered": {
+      "enabled": false,
+      "triggerType": "load+change",
+      "_triggerTypeNote": "Two triggers generated automatically: change (email capture on form) + LOAD (fire on success page). No manual trigger config needed.",
+      "registrationMethod": "email",
+      "_registrationMethodNote": "Set to 'email', 'sso', 'google', 'facebook', or whichever method this customer uses.",
+      "successUrlPatterns": ["/register/success", "/account/created", "/signup/success", "/registration/complete"],
+      "_successUrlPatternsNote": "Partial path strings — the enhance function uses indexOf(). Add the actual success URL pattern for this customer.",
+      "formUrlPatterns": ["/register", "/signup", "/account/register", "/create-account"],
+      "_formUrlPatternsNote": "Partial path strings for the registration form page. Used to limit email capture to registration forms only.",
+      "triggers": [],
+      "fields": {}
+    },
+    "productView": {
+      "enabled": false,
+      "triggerType": "dataLayer",
+      "dataLayerEvent": "",
+      "triggers": [],
+      "fields": {}
+    },
+    "addToCart": {
+      "enabled": false,
+      "triggerType": "dataLayer",
+      "dataLayerEvent": "",
+      "triggers": [],
+      "fields": {}
+    },
+    "order": {
+      "enabled": false,
+      "triggerType": "dataLayer",
+      "dataLayerEvent": "",
+      "triggers": [],
+      "fields": {}
+    },
+    "onSiteSearch": {
+      "enabled": false,
+      "triggerType": "load",
+      "triggers": [],
+      "fields": {}
+    },
+    "formSubmit": {
+      "enabled": false,
+      "triggerType": "dataLayer",
+      "dataLayerEvent": "",
+      "triggers": [],
+      "ignoredForms": ["login", "password", "payment", "shipping", "search"],
+      "fields": {}
+    },
+    "productConfiguration": {
+      "enabled": false,
+      "triggerType": "click",
+      "triggers": [],
+      "fields": {}
+    },
+    "richMediaInteraction": {
+      "enabled": false,
+      "triggerType": "click",
+      "triggers": [],
+      "fields": {}
+    }
+  },
+  "mappings": [],
+  "questions": [],
+  "assumptions": [],
+  "evidence": []
+}

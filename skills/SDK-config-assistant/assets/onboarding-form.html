@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acoustic SDK — Customer Onboarding</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Calibre', 'Inter', system-ui, sans-serif;
+    background: #f5f5f7;
+    color: #1F1E5D;
+    min-height: 100vh;
+    padding: 40px 20px;
+  }
+
+  .container {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 36px;
+  }
+
+  .logo {
+    width: 40px;
+    height: 40px;
+    background: #1F1E5D;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .logo svg { width: 24px; height: 24px; }
+
+  h1 {
+    font-family: 'Bricolage Grotesque', 'Inter', system-ui, sans-serif;
+    font-size: 24px;
+    font-weight: 700;
+    color: #1F1E5D;
+  }
+
+  h1 span {
+    display: block;
+    font-size: 14px;
+    font-weight: 400;
+    color: #5A5D77;
+    margin-top: 2px;
+  }
+
+  .card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 20px;
+    border: 1px solid #D0D1D8;
+  }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #706CFF;
+    margin-bottom: 20px;
+  }
+
+  .field-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .field-grid .full { grid-column: 1 / -1; }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #1F1E5D;
+  }
+
+  label .required {
+    color: #706CFF;
+    margin-left: 2px;
+  }
+
+  label .hint {
+    font-weight: 400;
+    color: #5A5D77;
+    margin-left: 4px;
+  }
+
+  input[type="text"],
+  input[type="url"],
+  select,
+  textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1.5px solid #D0D1D8;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    color: #1F1E5D;
+    background: #fff;
+    transition: border-color 0.15s;
+    outline: none;
+  }
+
+  input:focus, select:focus, textarea:focus {
+    border-color: #706CFF;
+    box-shadow: 0 0 0 3px rgba(112, 108, 255, 0.12);
+  }
+
+  input::placeholder, textarea::placeholder { color: #A0A3B1; }
+
+  textarea { resize: vertical; min-height: 80px; }
+
+  select { cursor: pointer; }
+
+  .radio-group {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .radio-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    border: 1.5px solid #D0D1D8;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.15s;
+    user-select: none;
+  }
+
+  .radio-option:hover { border-color: #706CFF; background: #f5f5ff; }
+
+  .radio-option input { display: none; }
+
+  .radio-option.selected {
+    border-color: #706CFF;
+    background: #f0efff;
+    color: #1F1E5D;
+    font-weight: 500;
+  }
+
+  .radio-option .dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid #D0D1D8;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+
+  .radio-option.selected .dot {
+    border-color: #706CFF;
+    background: #706CFF;
+    box-shadow: inset 0 0 0 3px #fff;
+  }
+
+  .checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .checkbox-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 14px;
+    border: 1.5px solid #D0D1D8;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.15s;
+    user-select: none;
+  }
+
+  .checkbox-option:hover { border-color: #706CFF; background: #f5f5ff; }
+
+  .checkbox-option input { display: none; }
+
+  .checkbox-option.checked {
+    border-color: #706CFF;
+    background: #f0efff;
+  }
+
+  .checkbox-option .box {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 2px solid #D0D1D8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+
+  .checkbox-option.checked .box {
+    background: #706CFF;
+    border-color: #706CFF;
+  }
+
+  .checkbox-option.checked .box::after {
+    content: '';
+    display: block;
+    width: 8px;
+    height: 5px;
+    border-left: 2px solid #fff;
+    border-bottom: 2px solid #fff;
+    transform: rotate(-45deg) translateY(-1px);
+  }
+
+  .url-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .url-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .url-row input { flex: 1; }
+
+  .url-row select { width: 140px; flex-shrink: 0; }
+
+  .btn-add-url {
+    background: none;
+    border: 1.5px dashed #D0D1D8;
+    border-radius: 8px;
+    padding: 9px 14px;
+    font-size: 13px;
+    color: #706CFF;
+    cursor: pointer;
+    width: 100%;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+
+  .btn-add-url:hover { border-color: #706CFF; background: #f5f5ff; }
+
+  .btn-remove {
+    background: none;
+    border: none;
+    color: #D0D1D8;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    font-size: 18px;
+    line-height: 1;
+    transition: color 0.15s;
+    flex-shrink: 0;
+  }
+
+  .btn-remove:hover { color: #ff4d6d; }
+
+  .actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    padding-top: 8px;
+  }
+
+  .btn-secondary {
+    padding: 11px 22px;
+    border: 1.5px solid #D0D1D8;
+    border-radius: 10px;
+    background: #fff;
+    color: #5A5D77;
+    font-size: 14px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .btn-secondary:hover { border-color: #706CFF; color: #1F1E5D; }
+
+  .btn-primary {
+    padding: 11px 28px;
+    border: none;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #706CFF, #1F1E5D);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+
+  .btn-primary:hover { opacity: 0.88; }
+  .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .success-banner {
+    display: none;
+    background: #1F1E5D;
+    color: #C8FF49;
+    border-radius: 12px;
+    padding: 20px 24px;
+    font-size: 14px;
+    line-height: 1.6;
+    margin-bottom: 20px;
+  }
+
+  .success-banner strong { font-size: 16px; display: block; margin-bottom: 6px; }
+
+  #result-json {
+    display: none;
+    background: #1a1a2e;
+    color: #C8FF49;
+    border-radius: 10px;
+    padding: 16px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    white-space: pre;
+    overflow-x: auto;
+    margin-top: 12px;
+    max-height: 320px;
+  }
+
+  .field-error {
+    font-size: 12px;
+    color: #e53e3e;
+    display: none;
+  }
+
+  input.invalid, select.invalid, textarea.invalid {
+    border-color: #e53e3e;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 3L20 7.5V16.5L12 21L4 16.5V7.5L12 3Z" fill="#706CFF"/>
+        <path d="M12 8L16 10.5V15.5L12 18L8 15.5V10.5L12 8Z" fill="#C8FF49"/>
+      </svg>
+    </div>
+    <h1>
+      Customer SDK Onboarding
+      <span>Acoustic Tealeaf / Connect — Signal Configuration Assistant</span>
+    </h1>
+  </header>
+
+  <div class="success-banner" id="success-banner">
+    <strong>Submitted — Claude is reading your configuration now.</strong>
+    The assistant will inspect your site, build the signal mapping, and generate the SDK files.
+    You can close this tab and return to your chat.
+    <div id="result-json"></div>
+  </div>
+
+  <form id="onboarding-form" novalidate>
+
+    <!-- Customer -->
+    <div class="card">
+      <div class="card-title">Customer details</div>
+      <div class="field-grid">
+        <div class="field">
+          <label>Customer name <span class="required">*</span></label>
+          <input type="text" id="name" placeholder="Acme Retail" required>
+          <span class="field-error" id="name-error">Required</span>
+        </div>
+        <div class="field">
+          <label>Platform <span class="required">*</span></label>
+          <select id="platform" required>
+            <option value="">Select platform…</option>
+            <option value="shopify">Shopify</option>
+            <option value="magento">Magento / Adobe Commerce</option>
+            <option value="salesforce-commerce">Salesforce Commerce Cloud</option>
+            <option value="sap-hybris">SAP / Hybris</option>
+            <option value="woocommerce">WooCommerce</option>
+            <option value="bigcommerce">BigCommerce</option>
+            <option value="custom-ecommerce">Custom e-commerce</option>
+            <option value="custom-b2b">Custom B2B / SaaS</option>
+            <option value="other">Other</option>
+          </select>
+          <span class="field-error" id="platform-error">Required</span>
+        </div>
+        <div class="field">
+          <label>Production domain <span class="required">*</span></label>
+          <input type="text" id="productionDomain" placeholder="www.example.com" required>
+          <span class="field-error" id="productionDomain-error">Required</span>
+        </div>
+        <div class="field">
+          <label>Staging domain <span class="hint">(optional)</span></label>
+          <input type="text" id="stagingDomain" placeholder="staging.example.com">
+        </div>
+        <div class="field">
+          <label>App key <span class="required">*</span></label>
+          <input type="text" id="appKey" placeholder="abc123xyz" required>
+          <span class="field-error" id="appKey-error">Required</span>
+        </div>
+        <div class="field">
+          <label>Collector URL <span class="required">*</span></label>
+          <input type="text" id="collectorUrl" placeholder="https://collector.example.com/collect" required>
+          <span class="field-error" id="collectorUrl-error">Required</span>
+        </div>
+        <div class="field">
+          <label>dataLayer name <span class="hint">(default: dataLayer)</span></label>
+          <input type="text" id="dataLayerName" placeholder="dataLayer">
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="card">
+      <div class="card-title">Configuration settings</div>
+      <div class="field-grid">
+        <div class="field">
+          <label>Mode <span class="required">*</span></label>
+          <div class="radio-group" id="mode-group">
+            <label class="radio-option selected">
+              <input type="radio" name="mode" value="test" checked>
+              <span class="dot"></span> Test (recommended)
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="mode" value="real">
+              <span class="dot"></span> Real
+            </label>
+          </div>
+        </div>
+        <div class="field">
+          <label>Inspection mode</label>
+          <div class="radio-group" id="impl-mode-group">
+            <label class="radio-option selected">
+              <input type="radio" name="implementationMode" value="website-assisted" checked>
+              <span class="dot"></span> Live site
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="implementationMode" value="datalayer-assisted">
+              <span class="dot"></span> dataLayer paste
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="implementationMode" value="guided">
+              <span class="dot"></span> Guided / no browser
+            </label>
+          </div>
+        </div>
+        <div class="field">
+          <label>Email / identity capture</label>
+          <select id="emailCapture">
+            <option value="session-after-consent">After consent — session storage</option>
+            <option value="disabled">Disabled</option>
+            <option value="always">Always (confirm with privacy team)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Conversion type</label>
+          <select id="conversionType">
+            <option value="order">Order (e-commerce)</option>
+            <option value="formSubmit">Form submit (lead gen / B2B)</option>
+            <option value="custom">Custom event</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Signals -->
+    <div class="card">
+      <div class="card-title">Signals to enable</div>
+      <div class="checkbox-group" id="signals-group">
+        <label class="checkbox-option checked">
+          <input type="checkbox" name="signals" value="pageView" checked>
+          <span class="box"></span> Page view — fires on every page load
+        </label>
+        <label class="checkbox-option checked">
+          <input type="checkbox" name="signals" value="productView" checked>
+          <span class="box"></span> Product view — fires on product detail pages
+        </label>
+        <label class="checkbox-option checked">
+          <input type="checkbox" name="signals" value="addToCart" checked>
+          <span class="box"></span> Add to cart — fires on cart add interaction
+        </label>
+        <label class="checkbox-option checked">
+          <input type="checkbox" name="signals" value="order" checked>
+          <span class="box"></span> Order / conversion — fires on confirmation page
+        </label>
+        <label class="checkbox-option">
+          <input type="checkbox" name="signals" value="onSiteSearch">
+          <span class="box"></span> On-site search — fires on search results page
+        </label>
+        <label class="checkbox-option">
+          <input type="checkbox" name="signals" value="formSubmit">
+          <span class="box"></span> Form submit — fires on non-sensitive form submissions
+        </label>
+        <label class="checkbox-option">
+          <input type="checkbox" name="signals" value="identification">
+          <span class="box"></span> Identification — attaches email to audience after consent
+        </label>
+      </div>
+    </div>
+
+    <!-- Journey URLs -->
+    <div class="card">
+      <div class="card-title">Journey URLs to inspect</div>
+      <div class="url-list" id="url-list">
+        <div class="url-row">
+          <input type="text" placeholder="https://www.example.com/" data-url>
+          <select data-page-type>
+            <option value="homepage">Homepage</option>
+            <option value="product">Product page</option>
+            <option value="category">Category / listing</option>
+            <option value="cart">Cart</option>
+            <option value="checkout">Checkout</option>
+            <option value="order-confirmation">Order confirmation</option>
+            <option value="search">Search results</option>
+            <option value="account">Account / login</option>
+            <option value="other">Other</option>
+          </select>
+          <button type="button" class="btn-remove" onclick="removeUrl(this)">×</button>
+        </div>
+      </div>
+      <button type="button" class="btn-add-url" onclick="addUrl()">+ Add another URL</button>
+    </div>
+
+    <!-- Notes -->
+    <div class="card">
+      <div class="card-title">Additional context</div>
+      <div class="field-grid">
+        <div class="field full">
+          <label>Consent / privacy rules <span class="hint">(optional)</span></label>
+          <textarea id="consentNotes" placeholder="e.g. Email may only be stored after the newsletter signup form submit. No PII on checkout pages."></textarea>
+        </div>
+        <div class="field full">
+          <label>Iframe usage <span class="hint">(optional)</span></label>
+          <textarea id="iframeNotes" placeholder="e.g. Checkout is loaded in an iframe from payments.example.com"></textarea>
+        </div>
+        <div class="field full">
+          <label>Existing config <span class="hint">(paste current initLogSignal() or profile JSON if updating)</span></label>
+          <textarea id="existingConfig" placeholder="Paste existing config here if this is an update…" style="min-height:100px;font-family:'SF Mono','Fira Code',monospace;font-size:12px;"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="btn-secondary" onclick="resetForm()">Reset</button>
+      <button type="submit" class="btn-primary" id="submit-btn">Generate SDK configuration →</button>
+    </div>
+
+  </form>
+</div>
+
+<script>
+  // Radio group styling
+  document.querySelectorAll('.radio-group').forEach(group => {
+    group.querySelectorAll('.radio-option').forEach(option => {
+      option.addEventListener('click', () => {
+        group.querySelectorAll('.radio-option').forEach(o => o.classList.remove('selected'));
+        option.classList.add('selected');
+        option.querySelector('input').checked = true;
+      });
+    });
+  });
+
+  // Checkbox group styling
+  document.querySelectorAll('.checkbox-option').forEach(option => {
+    option.addEventListener('click', () => {
+      const input = option.querySelector('input');
+      input.checked = !input.checked;
+      option.classList.toggle('checked', input.checked);
+    });
+  });
+
+  function addUrl() {
+    const list = document.getElementById('url-list');
+    const row = document.createElement('div');
+    row.className = 'url-row';
+    row.innerHTML = `
+      <input type="text" placeholder="https://www.example.com/products/…" data-url>
+      <select data-page-type>
+        <option value="homepage">Homepage</option>
+        <option value="product" selected>Product page</option>
+        <option value="category">Category / listing</option>
+        <option value="cart">Cart</option>
+        <option value="checkout">Checkout</option>
+        <option value="order-confirmation">Order confirmation</option>
+        <option value="search">Search results</option>
+        <option value="account">Account / login</option>
+        <option value="other">Other</option>
+      </select>
+      <button type="button" class="btn-remove" onclick="removeUrl(this)">×</button>`;
+    list.appendChild(row);
+    row.querySelector('input').focus();
+  }
+
+  function removeUrl(btn) {
+    const rows = document.querySelectorAll('.url-row');
+    if (rows.length > 1) btn.closest('.url-row').remove();
+  }
+
+  function resetForm() {
+    document.getElementById('onboarding-form').reset();
+    document.querySelectorAll('.radio-option').forEach(o => o.classList.remove('selected'));
+    document.querySelector('[value="test"]').closest('.radio-option').classList.add('selected');
+    document.querySelector('[value="website-assisted"]').closest('.radio-option').classList.add('selected');
+    document.querySelectorAll('.checkbox-option').forEach(o => {
+      const checked = ['pageView','productView','addToCart','order'].includes(o.querySelector('input').value);
+      o.querySelector('input').checked = checked;
+      o.classList.toggle('checked', checked);
+    });
+    document.querySelectorAll('.field-error').forEach(e => e.style.display = 'none');
+    document.querySelectorAll('.invalid').forEach(e => e.classList.remove('invalid'));
+  }
+
+  function validate() {
+    let valid = true;
+    const required = ['name', 'productionDomain', 'appKey', 'collectorUrl', 'platform'];
+    required.forEach(id => {
+      const el = document.getElementById(id);
+      const err = document.getElementById(id + '-error');
+      if (!el.value.trim()) {
+        el.classList.add('invalid');
+        if (err) err.style.display = 'block';
+        valid = false;
+      } else {
+        el.classList.remove('invalid');
+        if (err) err.style.display = 'none';
+      }
+    });
+    return valid;
+  }
+
+  document.getElementById('onboarding-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    if (!validate()) return;
+
+    const urls = [...document.querySelectorAll('.url-row')]
+      .map(row => ({
+        url: row.querySelector('[data-url]').value.trim(),
+        pageType: row.querySelector('[data-page-type]').value
+      }))
+      .filter(r => r.url);
+
+    const signals = [...document.querySelectorAll('[name="signals"]:checked')]
+      .map(el => el.value);
+
+    const payload = {
+      customer: {
+        name: document.getElementById('name').value.trim(),
+        productionDomain: document.getElementById('productionDomain').value.trim(),
+        stagingDomain: document.getElementById('stagingDomain').value.trim(),
+        appKey: document.getElementById('appKey').value.trim(),
+        collectorUrl: document.getElementById('collectorUrl').value.trim(),
+        platform: document.getElementById('platform').value,
+        dataLayerName: document.getElementById('dataLayerName').value.trim() || 'dataLayer'
+      },
+      settings: {
+        mode: document.querySelector('[name="mode"]:checked').value,
+        implementationMode: document.querySelector('[name="implementationMode"]:checked').value,
+        emailCapture: document.getElementById('emailCapture').value,
+        conversionType: document.getElementById('conversionType').value
+      },
+      enabledSignals: signals,
+      journeyUrls: urls,
+      notes: {
+        consent: document.getElementById('consentNotes').value.trim(),
+        iframes: document.getElementById('iframeNotes').value.trim(),
+        existingConfig: document.getElementById('existingConfig').value.trim()
+      },
+      submittedAt: new Date().toISOString()
+    };
+
+    // Store for Claude to read via JS evaluation
+    window.ACO_ONBOARDING_PAYLOAD = payload;
+
+    document.getElementById('result-json').textContent = JSON.stringify(payload, null, 2);
+    document.getElementById('result-json').style.display = 'block';
+    document.getElementById('success-banner').style.display = 'block';
+    document.getElementById('submit-btn').disabled = true;
+    document.getElementById('onboarding-form').style.opacity = '0.5';
+    document.getElementById('onboarding-form').style.pointerEvents = 'none';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+</script>
+</body>
+</html>
