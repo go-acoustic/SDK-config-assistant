@@ -21,7 +21,7 @@ import re
 import sys
 import time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timezone
 from pathlib import Path
 from textwrap import indent, dedent
 from typing import Any
@@ -203,7 +203,7 @@ def _source_expr(source: dict[str, Any]) -> str | None:
     if t == "type2":
         # Type 2 screenview — path relative to webEvent.screenview (e.g. "screenview.url")
         sub = path.replace("screenview.", "")
-        return f"help.webEvent?.screenview?.{sub} || location.pathname + location.search"
+        return f"help.webEvent?.screenview?.{sub} || location.href.split('?')[0]"
     if t == "type4":
         # Type 4 interaction — path relative to webEvent.target (e.g. "target.currState.value")
         sub = path.replace("target.", "")
@@ -233,12 +233,17 @@ def _field_lines(field_specs: dict[str, Any]) -> list[str]:
             lines.append(f"    // TODO: map signal.{field}")
             continue
         chain = " || ".join(exprs)
-        transform = spec.get("transform", "")
-        if transform == "number":
-            chain = f"parseFloat(String({chain}).replace(/[^0-9.-]/g,''))||null"
-        elif transform == "array":
-            chain = f"[].concat({chain}).filter(Boolean)"
-        lines.append(f"    signal.{field} = {chain};")
+        if field == "effect":
+            lines.append(f"    var _eff = String({chain} || 'positive');")
+            lines.append("    // default 'positive' per schema — 'neutral' is not a valid effect value")
+            lines.append("    signal.effect = _eff === 'negative' ? 'negative' : 'positive';")
+        else:
+            transform = spec.get("transform", "")
+            if transform == "number":
+                chain = f"parseFloat(String({chain}).replace(/[^0-9.-]/g,''))||null"
+            elif transform == "array":
+                chain = f"[].concat({chain}).filter(Boolean)"
+            lines.append(f"    signal.{field} = {chain};")
         if spec.get("required"):
             lines.append(f"    if (signal.{field}==null) return false; // required")
     return lines
@@ -769,7 +774,7 @@ def configure_init_log_signal(base_js: str, profile: dict[str, Any]) -> str:
             ])
         else:
             enhance_body = _enhance_from_fields(fields) if fields else (
-                "    signal.url = location.href;\n"
+                "    signal.url = location.href.split('?')[0];\n"
                 "    signal.audience = help.retrieve('audience') || {};\n"
                 "    return signal;"
                 if profile_key == "pageView" else
@@ -784,6 +789,9 @@ def configure_init_log_signal(base_js: str, profile: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 # Full SDK assembly (insert into template)
 # ---------------------------------------------------------------------------
+
+_PRO_TIER_NAMES = {'pro', 'connectpro'}
+
 
 def build_full_sdk(configured_init_log_signal: str, profile: dict[str, Any]) -> str:
     customer = profile.get("customer", {})
@@ -803,6 +811,13 @@ def build_full_sdk(configured_init_log_signal: str, profile: dict[str, Any]) -> 
     )
     sdk = sdk.replace('"%%APP_KEY%%"', json.dumps(app_key))
     sdk = sdk.replace('"%%COLLECTOR_URL%%"', json.dumps(collector_url))
+    production_domain = customer.get("productionDomain", "unknown")
+    build_note = f"{production_domain} - {datetime.now(timezone.utc).strftime('%d%m%Y')}"
+    _before = sdk
+    sdk = re.sub(r'"Acoustic\.com webApp Connect - [^"]*"', json.dumps(build_note), sdk, count=1)
+    if sdk == _before:
+        print("[ACO] WARNING: build-note substitution found no match", file=sys.stderr)
+
     return sdk
 
 
