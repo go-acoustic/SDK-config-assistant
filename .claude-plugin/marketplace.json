@@ -7,7 +7,7 @@
     {
       "name": "sdk-config-assistant",
       "source": "./",
-      "description": "Inspects a live website and generates a ready-to-test Acoustic Connect JavaScript SDK signal configuration."
+      "description": "Acoustic Connect JavaScript SDK signal configuration: generate one from a live website in Cowork, then hand-code and test it in Claude Code."
     }
   ]
 }

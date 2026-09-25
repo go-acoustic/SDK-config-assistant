@@ -1,6 +1,6 @@
 # Contributing
 
-This skill is developed in an internal Acoustic repository and published here. Changes are made
+These skills are developed in an internal Acoustic repository and published here. Changes are made
 internally and ported across, so if you work at Acoustic, start there rather than opening a PR on
 this repo.
 
@@ -21,7 +21,8 @@ Where a real name was only illustrating that behaviour varies between sites, say
 sites", "a live EU tenant" — rather than naming anyone.
 
 Do not add `docs/`, `analytics/`, or `profiles/` directories here. Those exist in the internal
-copy and hold customer data by design; they are not part of what is published.
+copy and hold customer data by design; they are not part of what is published. `DEVELOPING.md` is
+also internal-only — it documents how a skill is maintained, not how it is used.
 
 ## Git history is public too
 
