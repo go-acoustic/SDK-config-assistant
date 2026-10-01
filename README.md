@@ -1,10 +1,21 @@
 # SDK Config Assistant
 
-A Claude skill from Acoustic that inspects your live website and generates a ready-to-test Acoustic Connect JavaScript SDK signal configuration.
+Claude skills from Acoustic for building and testing Acoustic Connect JavaScript SDK signal configurations.
+
+| Skill | Runs in | What it does |
+|---|---|---|
+| [`sdk-config-assistant`](skills/SDK-config-assistant/README.md) | Claude Desktop, **Cowork** tab | Inspects your live website and generates a ready-to-test SDK signal configuration, with guided validation and CMS upload. |
+| [`sdk-config-coding`](skills/sdk-config-coding/README.md) | **Claude Code** (CLI, VS Code, JetBrains) | Hand-edits, debugs and tests the JavaScript in an existing loader against the live site through Tampermonkey and the Chrome DevTools MCP, and prepares it for production. |
+
+The two work as a pair: `sdk-config-assistant` generates a configuration, and `sdk-config-coding` picks it up when a signal needs code written by hand. Both ship in one plugin, so a single install gives you both — each skill only activates in the host it supports.
 
 ## Install
 
-Requires **Claude Desktop, Cowork tab**, plus the Claude in Chrome extension (this skill inspects your site live in the browser — it isn't supported in Claude Code or the Claude Desktop Chat tab).
+Both skills live in the plugin **`sdk-config-assistant`**, published from this repository.
+
+### Claude Desktop (Cowork) — for `sdk-config-assistant`
+
+Also needs the Claude in Chrome extension, since the skill inspects your site live in the browser.
 
 **Add the marketplace:**
 1. Open Claude Desktop and go to Cowork
@@ -27,11 +38,31 @@ Then, in a Cowork conversation, start the skill:
 /sdk-config-assistant
 ```
 
-See [skills/SDK-config-assistant/README.md](skills/SDK-config-assistant/README.md) for the full quick guide — requirements, what the skill produces, and how to validate results.
+### Claude Code — for `sdk-config-coding`
+
+```bash
+claude plugin marketplace add go-acoustic/SDK-config-assistant
+claude plugin install sdk-config-assistant@SDK-config-assistant
+```
+
+Restart Claude Code, then run the one-time browser tooling setup (dedicated Chrome profile, the `sdk-chrome-devtools` MCP, Tampermonkey):
+
+```
+/sdk-config-coding setup
+```
+
+After that, `/sdk-config-coding` on its own opens or continues a site.
+
+To pick up later releases, both commands are needed — the first pulls the marketplace clone, the second installs what it now sees:
+
+```bash
+claude plugin marketplace update SDK-config-assistant
+claude plugin update sdk-config-assistant@SDK-config-assistant
+```
 
 ## Need help?
 
-Log in to the Acoustic Support Portal and submit a case. If your session hit an issue, attach the `<slug>.json` and `<slug>.analytics.json` files the skill saves locally at session close.
+Log in to the Acoustic Support Portal and submit a case. If an `sdk-config-assistant` session hit an issue, attach the `<slug>.json` and `<slug>.analytics.json` files the skill saves locally at session close.
 
 ---
 

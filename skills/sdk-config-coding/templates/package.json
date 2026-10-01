@@ -1,0 +1,17 @@
+{
+  "name": "sdk-config-coding",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "lint": "eslint 'sites/*/acoconnect-loader.js'"
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.5",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.6.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.32.0",
+    "globals": "^17.7.0"
+  }
+}

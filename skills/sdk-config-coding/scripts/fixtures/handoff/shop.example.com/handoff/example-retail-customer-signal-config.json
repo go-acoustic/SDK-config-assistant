@@ -1,0 +1,52 @@
+{
+  "_fixture": "SYNTHETIC TEST FIXTURE: not real customer data",
+  "schemaVersion": 1,
+  "customer": {
+    "name": "Example Retail",
+    "productionDomain": "shop.example.com",
+    "stagingDomain": "",
+    "platform": "custom-ecommerce",
+    "dataLayerName": "dataLayer"
+  },
+  "acoustic": {
+    "sdkConfigurationComplete": false,
+    "signalStatus": {
+      "pageView": { "attempts": 0, "maxAttempts": 2, "completed": true, "validationResult": "passed", "reasonCodes": [], "correctionHistory": [] },
+      "productView": { "attempts": 0, "maxAttempts": 2, "completed": true, "validationResult": "passed", "reasonCodes": [], "correctionHistory": [] },
+      "addToCart": {
+        "attempts": 2, "maxAttempts": 2, "completed": false, "validationResult": "escalated",
+        "reasonCodes": ["signal_not_triggered"],
+        "correctionHistory": [
+          { "attempt": 1, "validationResult": "issue_found", "reasonCodes": ["signal_not_triggered"], "note": "add_to_cart dataLayer event never observed; basket updates via XHR", "correctionAttempted": true, "correctionResult": "applied", "retestResult": "failed" },
+          { "attempt": 2, "validationResult": "issue_found", "reasonCodes": ["signal_not_triggered"], "note": "Click trigger on .add-to-basket did not fire; button re-rendered after variant select", "correctionAttempted": true, "correctionResult": "applied", "retestResult": "failed" }
+        ]
+      },
+      "identification": {
+        "attempts": 2, "maxAttempts": 2, "completed": false, "validationResult": "escalated",
+        "reasonCodes": ["email_verification_required"],
+        "correctionHistory": [
+          { "attempt": 1, "validationResult": "issue_found", "reasonCodes": ["email_verification_required"], "note": "Test account needs email verification before login completes", "correctionAttempted": true, "correctionResult": "applied", "retestResult": "failed" }
+        ]
+      }
+    }
+  },
+  "inspection": {
+    "round": 2,
+    "dataLayerAvailable": true,
+    "dataLayerEvents": ["view_item", "view_item_list"],
+    "ecommerceSchema": "ga4",
+    "ecommerceEventMap": { "productView": "view_item", "addToCart": "", "order": "" },
+    "findings": ["No search box on site; onSiteSearch not in scope", "Checkout is hosted on a third-party domain; order not in scope"]
+  },
+  "pageCategoryRules": [
+    { "category": "homepage", "pathPattern": "^/$", "confidence": 100 },
+    { "category": "product", "pathPattern": "^/p/", "confidence": 90 }
+  ],
+  "mappings": [
+    { "signal": "productView", "attribute": "productId", "required": true, "sourceType": "dataLayer", "exampleValue": "SKU-1001", "confidence": 95, "status": "confirmed" },
+    { "signal": "addToCart", "attribute": "productId", "required": true, "sourceType": "sessionStorage", "exampleValue": "SKU-1001", "confidence": 40, "status": "unverified" }
+  ],
+  "questions": ["Does the customer want removedFromCart captured from the mini-basket?"],
+  "assumptions": ["Currency is always GBP"],
+  "evidence": []
+}
