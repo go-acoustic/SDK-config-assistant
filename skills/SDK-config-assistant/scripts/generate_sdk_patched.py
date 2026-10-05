@@ -664,6 +664,8 @@ def configure_init_log_signal(base_js: str, profile: dict[str, Any]) -> str:
     # Always enable logging in test mode so console output is visible
     js = re.sub(r"(eventLog\s*:\s*)(true|false)", rf"\g<1>{'true' if is_test else 'false'}", js)
     js = re.sub(r"(signalsLog\s*:\s*)(true|false)", r"\g<1>true", js)
+    # errorLog: on while testing, off in production (see SKILL.md logging flag guardrail)
+    js = re.sub(r"(errorLog\s*:\s*)(true|false)", rf"\g<1>{'true' if is_test else 'false'}", js)
 
     # --- GAdataLayerName ---
     effective_dl = dl_name if (dl_available and dl_name) else ""
@@ -1017,7 +1019,7 @@ def review_markdown(profile: dict[str, Any], warnings: list[str], d_slug: str, b
         "## Production deployment",
         "",
         "1. Complete all rounds — all required signal fields confirmed in console",
-        "2. Set `settings.mode = \"real\"` in profile and regenerate",
+        "2. Set `settings.mode = \"production\"` in profile and regenerate",
         "3. In the regenerated JS: `fakeSignals: false`, `eventLog: false`",
         "4. Deploy via GTM Custom HTML tag or direct `<script>` tag to staging",
         "5. Verify live signals in the Acoustic Connect dashboard",

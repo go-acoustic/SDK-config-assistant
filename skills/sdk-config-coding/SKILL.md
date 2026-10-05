@@ -34,7 +34,10 @@ mode — that belongs to `SDK-config-assistant`'s own test guide.
         ├── notes.md               (site-specific notes, selectors, data layer events)
         ├── handoff/               (only for sites handed off from sdk-config-assistant — read-only)
         │   ├── <customer-slug>-implementation-review.md
-        │   └── <customer-slug>-customer-signal-config.json
+        │   ├── <customer-slug>-customer-signal-config.json
+        │   └── original-sdk.js    (copy of the loader exactly as handed off, in test mode — the comparison baseline)
+        ├── coding-result.json     (only for handed-off sites — written by "Preparing for production", read by sdk-config-assistant)
+        ├── .acoustic-upload.json  (only after coding-result.json was uploaded to Acoustic — content IDs only)
         └── *.js                   (Playwright utility scripts, if any)
 ```
 
@@ -79,18 +82,22 @@ When the user says "let's work on" or "let's continue" a site, or asks to start/
    - ⏭️ skipped (no trigger expected — e.g. `accountRegistered` with no known confirmation page)
    - ⬜ not yet started (empty `enhance` or no triggers)
 
-   Omit the `audience` utility signal (see "Signal names in handed-off SDKs"). For a handed-off site, list the signals `notes.md` records as escalated or blocked at handoff first, marked 🔺 handed over, with their reason codes — these are usually why the site was handed off. A handed-over signal whose `enhance` and triggers are now filled in is ✅ like any other.
+   Omit the `audience` utility signal (see "Signal names in handed-off SDKs"). For a handed-off site, list the handed-over signals first (those `notes.md` records as escalated or blocked at handoff, including signals from `blockers[]` that were never built), marked 🔺 handed over, with their reason codes or blocker summary — these are usually why the site was handed off. A handed-over signal whose `enhance` and triggers are now filled in is ✅ like any other.
 3. **Ask about SDK injection** — for an ongoing implementation, ask: "Does the Tampermonkey script need to be set up, or is it already installed?" For a new site, offer to walk through setup. Then follow the session start steps below.
 4. All edits target `sites/<hostname>/acoconnect-loader.js`, within `initLogSignal` only.
 5. If the project already has ESLint set up (an `eslint.config.mjs` exists at the project root — see "Linting" below), lint after every edit: `npx eslint sites/<hostname>/acoconnect-loader.js --fix`. If it doesn't, skip linting — don't mention it unless the user asks.
 
 ## Sites handed off from sdk-config-assistant
 
-`sdk-config-assistant` (a Cowork skill in the `sdk-config-assistant` plugin) inspects a site and generates an SDK config, testing each signal up to three times; signals still failing after that are **escalated** — left in the SDK with no triggers and an empty `enhance`. At the end of its flow it offers to hand the SDK off to this skill by copying it to `sites/<hostname>/acoconnect-loader.js` (renamed from `acoConnectSdkConfig-<domain-slug>.js`) with its report and signal config JSON under `handoff/`.
+`sdk-config-assistant` (a Cowork skill in the `sdk-config-assistant` plugin) inspects a site and generates an SDK config, testing each signal up to three times (two correction attempts); signals still failing after that are **escalated**. An escalated signal is not removed from the SDK: it keeps the triggers and `enhance` from its last correction attempt, which did not pass validation. Treat that code as not working, not as a starting point that is known to be close. At the end of its session the user can choose **Use coding assistant**; the skill then copies the SDK to `sites/<hostname>/acoconnect-loader.js` (renamed from `acoConnectSdkConfig-<domain-slug>.js`) with its report, its signal config JSON and `original-sdk.js` (the loader exactly as handed off) under `handoff/`.
 
-The handoff is **one-way**: once this skill has changed the loader, it can't go back into `sdk-config-assistant`. So:
+**Mode at handoff.** `sdk-config-assistant` may already have switched its own copy to production. Before handing off, it sets these four flags in the handed-off loader only: `fakeSignals: true`, `errorLog: true`, `eventLog: false`, `signalsLog: true`. So a handed-off loader always arrives in test mode. If you find `fakeSignals: false` in a freshly handed-off loader, tell the user before loading it in the browser, because it would send real data to Connect.
 
-- Treat `handoff/` as read-only reference. Never edit, regenerate, or delete its files, and never offer to send changes back to `sdk-config-assistant`.
+The handoff is **one-way for code**: once this skill has changed the loader, the code can't go back into `sdk-config-assistant`. The only thing that flows back is a short summary file, `coding-result.json`, written by "Preparing for production" below. So:
+
+- Treat `handoff/` as read-only reference. Never edit, regenerate, or delete its files (including `original-sdk.js`), and never offer to send code back to `sdk-config-assistant`.
+- Never read from or write to the `SDK-config-assistant/` folder, even though it may sit next to this project. `sdk-config-assistant` reads `coding-result.json` from this site's folder itself.
+- **Folder name vs hostname.** If a handoff was copied "alongside" an existing one, the folder is named `<hostname>-<YYYYMMDD>` (or `-<YYYYMMDD-HHMMSS>`). The site's hostname is still `customer.productionDomain` from the handoff JSON. Use the real hostname for Tampermonkey `@match` rules and for `hostname` in `coding-result.json`, and the folder name only for file paths.
 - If the user re-runs `sdk-config-assistant` and hands the same site off again, that skill asks before replacing this folder and keeps the old one as `sites/<hostname>.bak-<timestamp>/`. A replaced folder has no `notes.md`, so the first-open steps below run again on the new handoff. If the user wants earlier hand-written code back, read it from the backup folder — don't guess it.
 
 ### First open of a handed-off site
@@ -98,20 +105,27 @@ The handoff is **one-way**: once this skill has changed the loader, it can't go 
 Run once, when `handoff/` exists and `notes.md` does not.
 
 1. Read `handoff/*-implementation-review.md` and `handoff/*-customer-signal-config.json`. The JSON is the more useful of the two. Fields to use, all optional — skip any that are absent:
+   - `handoffMeta` — `profileSlug`, `handedOffAt`, `originalSdkFileName`, `modeAtHandoff`, `signalsHandedOver`, `blockersAtHandoff` (written by newer versions of sdk-config-assistant; older handoffs don't have it, and only the newest have the last two)
+   - `blockers[]` — per entry `signal`, `severity`, `summary`, `resolution`. These are signals the config skill could not build at all (for example, sign-in on a separate host, or an order page it could not inspect). They have no `acoustic.signalStatus` entry and no working code in the SDK.
    - `customer` — `name`, `productionDomain`, `stagingDomain`, `platform`, `dataLayerName`
    - `acoustic.signalStatus.<signal>` — `validationResult` (`passed` / `issue_found` / `not_tested` / `blocked` / `escalated` / `pending`), `attempts`, `reasonCodes`, and `correctionHistory[]` (each entry's `note`, `correctionResult`, `retestResult`)
    - `inspection` — `dataLayerAvailable`, `dataLayerEvents`, `ecommerceSchema`, `ecommerceEventMap`, `findings[]`
    - `pageCategoryRules[]`, `mappings[]` (per-field `source`, `confidence`, `status`), `questions[]`, `assumptions[]`, `evidence[]`
-2. **If `acoustic.signalStatus` is missing, or every signal in it is `pending`**, the JSON was probably written at generation time, before validation ran. Take per-signal outcomes from the review's escalation or status sections instead. If neither source says which signals were escalated, tell the user and ask — don't infer escalation from an empty `enhance` alone (a signal can be empty because the site has no matching functionality).
-3. Write `sites/<hostname>/notes.md`:
+2. **Handed-over signals** are `handoffMeta.signalsHandedOver` when present. Otherwise, work them out: every signal in `acoustic.signalStatus` that is `escalated` or `blocked`, plus every `blockers[]` signal that is not `passed` there. A blocked signal usually needs something from the customer (access to another host, a test order, credentials) before code can help, so record its `resolution` as the first open question for it.
+3. **If `acoustic.signalStatus` is missing, or every signal in it is `pending`**, the JSON was probably written at generation time, before validation ran. Take per-signal outcomes from the review's escalation or status sections instead. If neither source says which signals were escalated, tell the user and ask — don't infer escalation from an empty `enhance` alone (a signal can be empty because the site has no matching functionality).
+4. Write `sites/<hostname>/notes.md`:
    ```markdown
    # <hostname>
 
    Handed off from sdk-config-assistant on <handoff date, if stated>. Customer: <customer.name>.
-   Original SDK file name: <from the review, if stated> — use this name when the SDK is deployed.
+   Original SDK file name: <from handoffMeta or the review, if stated> — use this name when the SDK is deployed.
+   Profile slug: <handoffMeta.profileSlug, if stated> — used in coding-result.json.
 
    ## Signal status at handoff
    | Signal | Result | Attempts | Reason codes |
+
+   ## Blocked before the SDK was built
+   <per blockers[] entry whose signal is not passed: signal, summary and resolution, verbatim>
 
    ## Escalated / blocked signal history
    <per signal: each correctionHistory note and outcome — what was already tried>
@@ -123,7 +137,7 @@ Run once, when `handoff/` exists and `notes.md` does not.
    <questions[] and assumptions[], verbatim>
    ```
    Record only what the handoff files state. Mark anything missing as "not stated" rather than filling it in.
-4. Continue with "Working on a site" from step 2. When starting a handed-over signal, check its escalation history and the field `mappings` first. Don't repeat an approach that `correctionHistory` shows already failed unless there's a new reason to expect it to work.
+5. Continue with "Working on a site" from step 2. When starting a handed-over signal, check its escalation history and the field `mappings` first. Don't repeat an approach that `correctionHistory` shows already failed unless there's a new reason to expect it to work.
 
 ### Signal names in handed-off SDKs
 
@@ -427,3 +441,111 @@ Run this when the user asks to finish, go live, or prepare the SDK for deploymen
    - `Production ready` — all in-scope signals implemented and verified, no exclusions or open follow-ups, production flags set and re-verified.
 
    Never give a label the evidence doesn't support. For example, don't give `Production ready` when `order` was only checked by inspecting selectors, not by a real or test order.
+6. **Record the result for sdk-config-assistant (handed-off sites only).** Skip this step when `sites/<hostname>/handoff/` doesn't exist. Otherwise ask: "Save a summary of what was fixed and send it to Acoustic, so sdk-config-assistant can learn from it? It records signal names, change types, trigger attributes and short reasons, never code, customer data or keys." Only on **yes**, write `sites/<hostname>/coding-result.json` as described in "The coding-result.json file" below, then run step 7. On **no**, write nothing, upload nothing, and don't ask again in this session. Running this step again later overwrites the file with the latest result.
+7. **Upload the result to Acoustic (handed-off sites only, after a yes in step 6).** Upload `coding-result.json` to the Acoustic operator content org, the same org and the same method `sdk-config-assistant` uses for its session backup. See "Uploading coding-result.json" below. This step is non-blocking: if it fails for any reason, say so in one line and carry on. The local file is kept either way.
+8. **Sharing more with Acoustic (optional).** After step 7, tell the user in one line that Acoustic can learn more if they also share, as a folder or zip, `sites/<hostname>/` (the SDK files show exactly what changed; leave out `notes.md` if it holds anything they'd rather not share). Never send anything beyond step 7 yourself.
+
+### The coding-result.json file
+
+This is the only thing that goes back to `sdk-config-assistant`, and that skill reads it on its next run for this site. Keep it to this shape so it can be read reliably:
+
+```json
+{
+  "schemaVersion": 1,
+  "writtenBy": "sdk-config-coding",
+  "hostname": "shop.example.com",
+  "folder": "shop.example.com",
+  "profileSlug": "example-retail",
+  "handedOffAt": "2026-09-24T14:05:00Z",
+  "completedAt": "2026-10-01T10:00:00Z",
+  "readiness": "Ready for production review",
+  "productionFlagsSet": true,
+  "baseline": "original-sdk.js",
+  "signals": {
+    "addToCart": {
+      "statusAtHandoff": "escalated",
+      "outcome": "fixed",
+      "changeTypes": ["trigger", "enhance"],
+      "summary": "Trigger moved from button click to the add_to_cart dataLayer event.",
+      "reason": "The button is re-rendered after an XHR update, so the click listener was lost.",
+      "triggers": {
+        "before": [{ "event.type": "click", "target.attributes.innerText": "Add to basket" }],
+        "after": [{ "customEvent.data.event": "add_to_cart" }]
+      }
+    }
+  }
+}
+```
+
+How to fill it:
+
+1. **Baseline.** Compare `acoconnect-loader.js` against `handoff/original-sdk.js`, signal by signal inside `initLogSignal` (each signal's triggers and `enhance`). If `original-sdk.js` is missing (older handoffs), set `baseline` to `"none"`, and take `statusAtHandoff` from `notes.md` and `changeTypes` from what you did in this project. Don't guess.
+2. **Signal keys.** Use the sdk-config-assistant profile keys, so `loggedIn` is written as `identification`. Leave out the `audience` utility signal unless you changed it.
+3. **Which signals.** Include every signal whose code changed, plus every handed-over signal (escalated or blocked at handoff, including `blockers[]` signals that were never built), even if it's unchanged. Use `statusAtHandoff: "blocked"` for a `blockers[]` signal with no `signalStatus` entry.
+4. **Allowed values:**
+   - `statusAtHandoff`: the `validationResult` from the handoff JSON (`passed`, `issue_found`, `not_tested`, `blocked`, `escalated`, `pending`), or `"not stated"`.
+   - `outcome`: `fixed` (now verified in the browser), `improved` (changed but not fully verified), `unchanged`, `excluded` (accepted by the user as out of scope), `not_started`.
+   - `changeTypes`: any of `trigger`, `enhance`, `customCode` (anything beyond built-in `help.*` functions), `removed`. Use an empty list when nothing changed.
+   - `readiness`: the label from step 5, exactly as written there.
+   - `productionFlagsSet`: `true` only if step 2 set production flags and step 3 re-verified them.
+   - `triggers` (optional, include whenever triggers changed): `before` is the signal's `triggers[].attributes` in `handoff/original-sdk.js`, `after` is the same in `acoconnect-loader.js`. Copy the attribute keys and values as written; write a regex value as its source text (for example `"/^add/i"`). Leave it out when the triggers are unchanged.
+5. **Content rules.**
+   - `summary` and `reason` are one sentence each, 200 characters at most.
+   - `reason` says why the original approach failed and why the new one works. That's the part sdk-config-assistant learns from. If the reason isn't known, write `"not stated"`.
+   - Never include code, selectors longer than one short CSS selector, customer data, emails, credentials, app keys or collector URLs. Trigger attribute values longer than 100 characters are cut to 100.
+6. **Write safely.** Write valid JSON indented by 2 spaces, then read it back and parse it to confirm. Write it only to `sites/<hostname>/coding-result.json`, never inside `handoff/` and never in the `SDK-config-assistant/` folder.
+
+### Uploading coding-result.json
+
+Runs from "Preparing for production" step 7, only after the user said yes in step 6. It uses the same fixed operator org and the same content API as `sdk-config-assistant`'s session backup, so the result lands next to that skill's `<slug>.analytics.json` files, where `sdk-config-analysis` reads them. The user only needs to be signed in to app.goacoustic.com in the Chrome profile this skill uses (the one set by `chromeMode`). Nothing else about the user's own Connect account is read or changed.
+
+**Operator org constant.** Hardcoded; never derive it from the site, the handoff files or the user's account:
+
+```
+OPERATOR_ORG_SUB_ID = "7068330f6b52ccdbed0ee8b121764e21a5aef534"
+```
+
+**Asset name.** `<profileSlug>.coding-result.json`, using `profileSlug` from the file (the handoff's `handoffMeta.profileSlug`). If there is no profile slug, use `<hostname>.coding-result.json`.
+
+**Upload record.** `sites/<folder>/.acoustic-upload.json` stores `{ "orgSubId", "assetName", "assetUuid", "assetRev", "resourceId", "uploadedAt" }` so a later upload replaces the same asset. It holds only content IDs, never keys, cookies or tokens.
+
+1. **Open the operator org.** `navigate_page` to `https://app.goacoustic.com/content/my-content?subId=7068330f6b52ccdbed0ee8b121764e21a5aef534`, wait 2 s, then `navigate_page` to `https://app.goacoustic.com/content/items/assets` and wait 2 s. Both navigations are needed: the second one commits the org switch.
+2. **Check the session and the org** with `evaluate_script`:
+   ```js
+   async () => {
+     const reg = await fetch('/content/api/registry/v1/currenttenant', { credentials: 'include', headers: { Accept: 'application/json' } });
+     const d = reg.ok ? await reg.json() : {};
+     const probe = await fetch('/content/api/authoring/v1/assets?rows=1', { credentials: 'include', headers: { Accept: 'application/json' } });
+     return { org: d.name || '', probe: probe.status };
+   }
+   ```
+   - `probe` is not `200`, or the page is a sign-in page → say "Upload to Acoustic skipped — not signed in to app.goacoustic.com in this Chrome profile. The summary is saved in coding-result.json." and stop. Offer to try again after the user signs in.
+   - `org` does not contain `SDK Config` → say "Upload to Acoustic skipped — wrong org (got: <org>)." and stop. Never upload to any other org.
+3. **Upload.** Read `sites/<folder>/coding-result.json` and `.acoustic-upload.json` (if present) from disk. Parse the result file to confirm it is valid JSON, and check it contains no `appKey`, `collectorUrl` or `postUrl` key. Then run `evaluate_script`, with `CONTENT` replaced by the file's text as a JSON string literal (for example the output of `JSON.stringify(fileText)`), and `ASSET_UUID` / `ASSET_REV` from the upload record, or empty strings on the first upload:
+   ```js
+   async () => {
+     const name = 'ASSET_NAME';
+     const content = CONTENT;
+     const assetUuid = 'ASSET_UUID', assetRev = 'ASSET_REV';
+     const r1 = await fetch('/content/api/authoring/v1/resources?name=' + encodeURIComponent(name), {
+       method: 'POST', credentials: 'include',
+       headers: { 'Content-Type': 'application/json;charset=UTF-8', Accept: 'application/json' }, body: content });
+     if (!r1.ok) return { error: 'RESOURCE_FAILED ' + r1.status };
+     const resourceId = (await r1.json()).id;
+     const r2 = assetUuid
+       ? await fetch('/content/api/authoring/v1/assets/' + assetUuid, { method: 'PUT', credentials: 'include',
+           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+           body: JSON.stringify({ id: assetUuid, rev: assetRev, resource: resourceId }) })
+       : await fetch('/content/api/authoring/v1/assets', { method: 'POST', credentials: 'include',
+           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+           body: JSON.stringify({ name, resource: resourceId }) });
+     if (!r2.ok) return { error: (assetUuid ? 'PUT_FAILED ' : 'ASSET_FAILED ') + r2.status };
+     const d2 = await r2.json();
+     return { assetUuid: d2.id, assetRev: d2.rev, resourceId, mode: assetUuid ? 'update' : 'create' };
+   }
+   ```
+   If a `PUT` fails with `409` or `404` (the asset changed or was removed), clear the upload record and run the upload once more as a first upload.
+4. **Record it.** On success, write `.acoustic-upload.json` with the returned IDs and `uploadedAt`, and add a line to `notes.md`: "Result uploaded to Acoustic on <date>." Tell the user in one line that the summary was sent. On failure, say "Upload to Acoustic failed (<error>). The summary is saved in coding-result.json." and don't retry unless the user asks.
+5. **Put the browser back.** `navigate_page` back to the site page the user was working on, so testing can continue.
+
+Never upload `acoconnect-loader.js`, `original-sdk.js`, `notes.md` or anything in `handoff/`. Only `coding-result.json` is sent.

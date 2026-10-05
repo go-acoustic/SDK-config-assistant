@@ -33,6 +33,7 @@ Step 0 (new vs existing)
   → Step 10 (upload to Media Gallery)   ← Only if Step 10-pre Option 2 selected
   → Step 14 (final response)
   → Step 14b (analytics sidecar write + completion + feedback + session backup)
+  → Step 14b-E (coding assistant handoff) ← only if the user clicks "Use coding assistant" on feedback_saved and confirms
 ```
 
 - **Never skip a step** — each gate (8b, Validation) is a mandatory stop. Proceeding past a gate without completing it is a skill defect.
@@ -93,10 +94,10 @@ Step 0 (new vs existing)
 
 In both cases apply the fallback below by widget category. A missing tool is not a reason to improvise: every widget in this skill has a defined fallback, and skipping to a sentence of your own is a skill defect.
 
-- **Category 1 — Info/status widgets** (no user input required): `tier_summary`, `inspection_complete`, `sdk_upload_progress`, `uploading_feedback`
+- **Category 1 — Info/status widgets** (no user input required): `tier_summary`, `inspection_complete`, `sdk_upload_progress`, `uploading_feedback`, `handoff_complete`
   → Output a concise plain-text summary (≤5 lines) in chat. No customer response needed. Continue immediately.
 
-- **Category 2 — Binary/option choice widgets**: `credentials_login_gate`, `blocker_login_required`, `blocker_step_failed`, `upload_login_gate`, `session_expired_gate`, `org_confirmation`, `deployment_choice`, `deployment_choice_cms`, `deployment_instructions`, `intake_step1c_credentials`, `signals_configured`, `deployment`, `session_complete`, `feedback_saved`
+- **Category 2 — Binary/option choice widgets**: `signal_retest_bundle` (single button: fall back to plain text and continue to SI-I), `credentials_login_gate`, `blocker_login_required`, `blocker_step_failed`, `upload_login_gate`, `session_expired_gate`, `org_confirmation`, `deployment_choice`, `deployment_choice_cms`, `deployment_instructions`, `intake_step1c_credentials`, `signals_configured`, `deployment`, `session_complete`, `feedback_saved`, `handoff_confirm`, `handoff_destination_exists`
   → Use `AskUserQuestion` with the exact same options as the widget. Never use plain chat text for a decision point.
 
 - **Category 3a — Multi-signal validation / retest matrix**: `signal_validation_matrix`, `signal_retest_matrix`
@@ -105,9 +106,9 @@ In both cases apply the fallback below by widget category. A missing tool is not
 - **Category 3b — Reason collectors**: `issue_reason_collector`, `blocker_reason_collector`
   → Use `AskUserQuestion` with the predefined reason codes as options. Omit the free-text notes field entirely.
 
-- **Category 3c — Feedback form**: `session_feedback`, `feedback_saved`
+- **Category 3c — Feedback form**: `session_feedback`, `feedback_saved`. For `feedback_saved` only, the fallback is not the outcome question below: use `AskUserQuestion` with "Close session", "New customer" and "Use coding assistant".
   → Use `AskUserQuestion` with the predefined outcome options (Production ready / Usable with minor changes / Not production ready / Run failed). Omit the free-text comment and signal/area pills. Write the selected outcome to the analytics sidecar as normal.
-  → **Widget fidelity note:** When `show_widget` IS available, `session_feedback` and `feedback_saved` MUST be rendered from their exact templates in 14b-C — never improvised. The feedback_saved widget MUST include "Close session" + "New customer" buttons and the 30s auto-close countdown. See the hard guardrails at each widget definition for the mandatory sequence.
+  → **Widget fidelity note:** When `show_widget` IS available, `session_feedback` and `feedback_saved` MUST be rendered from their exact templates in 14b-C — never improvised. The feedback_saved widget MUST include "Close session" + "New customer" + "Use coding assistant" buttons and the 30s auto-close countdown. See the hard guardrails at each widget definition for the mandatory sequence.
 
 - **Category 2b — The storage gate**: `workspace_required`
   → This widget has a single button, so it does **not** map onto `AskUserQuestion` (which needs at least two options). Use the verbatim plain-text fallback in the Pre-step instead, then the three-option `AskUserQuestion` defined there. Never replace it with a one-line status such as "Waiting for a folder to be added" — the user has been given no reason to act on and no way to act.
@@ -187,7 +188,7 @@ This order is **authoritative**. No later widget definition, step, or routing in
 12. Generated-files summary
 13. `signal_validation_matrix`
 14. Conditional reason collectors (`issue_reason_collector`, `blocker_reason_collector`)
-15. Corrected-config presentation
+15. Corrected-config presentation (`signal_retest_bundle`)
 16. `signal_retest_matrix`
 17. `signal_escalation` — only after a failed retest exhausts the attempt limit
 18. Browser-verification gate (Step 13)
@@ -198,6 +199,11 @@ This order is **authoritative**. No later widget definition, step, or routing in
 23. `session_feedback`
 24. `uploading_feedback`
 25. `feedback_saved`
+26. `handoff_confirm` — only when the user clicks "Use coding assistant" (Step 14b-E)
+27. `handoff_destination_exists` — only when the site's handoff folder already exists (Step 14b-E)
+28. `handoff_complete` — only when the handoff files were copied (Step 14b-E)
+
+**Exception for Step 14b-E:** `feedback_saved` (25) may be shown again after `handoff_confirm` (26) or `handoff_destination_exists` (27) when the user declines or cancels, and after a failed copy in E-3. This is the only case where an earlier widget in this list is re-shown after a later one.
 
 **Correction order within validation:**
 `signal_validation_matrix` → reason collector → correction → corrected config → `signal_retest_matrix` → `signal_escalation` (only if retest fails after maxAttempts)
@@ -448,6 +454,62 @@ Set internal variables from the loaded profile:
 - `customer.name`, `customer.productionDomain`, `customer.appKey`, `customer.collectorUrl`
 - `acoustic.subscriptionId`, `acoustic.assetUuid`, `acoustic.deliveryUrl`, `acoustic.contentHost`
 
+**Step 0c-H — Coding assistant result (only when the profile has a `handoff` object).** Skip this entirely when the loaded profile has no top-level `handoff` key. Otherwise run the script below before showing `profile_loaded`. It is non-blocking and silent: if it prints anything other than a `HANDOFF|` line, set `HANDOFF_LINE` from the profile's `handoff` object alone (as described in the substitution guide) and continue.
+
+```bash
+SLUG="<SLUG>" python3 -c "
+import json, os, glob, pathlib, datetime
+def write_atomic(path, text):
+    # Write to a temporary file beside the target, then swap it in. If anything fails,
+    # the original file is left exactly as it was.
+    tmp = path.with_name('.' + path.name + '.tmp')
+    tmp.write_text(text)
+    json.loads(tmp.read_text())
+    os.replace(tmp, path)
+try:
+    mnt = glob.glob('/sessions/*/mnt')
+    root = pathlib.Path(mnt[0])
+    pp = root/'SDK-config-assistant'/'profiles'/(os.environ['SLUG'] + '.json')
+    prof = json.loads(pp.read_text())
+    h = prof.get('handoff') or {}
+    folder = (h.get('folder') or '').strip('/')
+    res_path = root/folder/'coding-result.json' if folder.startswith(('SDK-config-coding/sites/', 'SDK-coding-assistant/sites/')) else None
+    summary = h.get('result')
+    if res_path and res_path.is_file():
+        r = json.loads(res_path.read_text())
+        if r.get('schemaVersion') == 1 and r.get('writtenBy') in ('sdk-config-coding', 'sdk-coding-assistant') and isinstance(r.get('signals'), dict):
+            cut = lambda s: (str(s) if s is not None else '')[:200]
+            sigs = {k: {'statusAtHandoff': cut(v.get('statusAtHandoff')), 'outcome': cut(v.get('outcome')),
+                        'changeTypes': [cut(c) for c in (v.get('changeTypes') if isinstance(v.get('changeTypes'), list) else [])][:4],
+                        'summary': cut(v.get('summary')), 'reason': cut(v.get('reason'))}
+                    for k, v in r['signals'].items() if isinstance(v, dict)}
+            by = lambda o: sorted(k for k, v in sigs.items() if v['outcome'] == o)
+            summary = {'readAt': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+                       'completedAt': cut(r.get('completedAt')), 'readiness': cut(r.get('readiness')),
+                       'productionFlagsSet': r.get('productionFlagsSet') is True, 'baseline': cut(r.get('baseline')),
+                       'fixed': by('fixed'), 'improved': by('improved'), 'excluded': by('excluded'),
+                       'unchanged': by('unchanged'), 'notStarted': by('not_started'), 'signals': sigs}
+            if (h.get('result') or {}).get('completedAt') != summary['completedAt']:
+                h['result'] = summary; prof['handoff'] = h
+                write_atomic(pp, json.dumps(prof, indent=2))
+                ap = pp.with_name(os.environ['SLUG'] + '.analytics.json')
+                if ap.exists():
+                    a = json.loads(ap.read_text())
+                    entry = {k: summary[k] for k in ('readAt','completedAt','readiness','productionFlagsSet','fixed','improved','excluded','unchanged','notStarted')}
+                    entry['changeTypes'] = {k: v['changeTypes'] for k, v in sigs.items()}
+                    entry['reasons'] = {k: v['reason'] for k, v in sigs.items()}
+                    a.setdefault('codingAssistantResults', []).append(entry)
+                    write_atomic(ap, json.dumps(a, indent=2, ensure_ascii=False) + '\n')
+    s = summary or {}
+    print('HANDOFF|' + json.dumps({'at': (h.get('at') or '')[:10], 'folder': folder.split('/')[-1],
+          'fixed': s.get('fixed', []), 'readiness': s.get('readiness', ''), 'hasResult': bool(summary)}))
+except Exception:
+    print('SKIP')
+"
+```
+
+This reads only `coding-result.json` in the handed-off folder, never anything else the coding assistant wrote. It writes only `handoff.result` in the profile and appends to `codingAssistantResults[]` in the analytics sidecar, and only when a new result has appeared. It never changes `signals`, `acoustic.signalStatus`, `settings` or any generated file, so regeneration behaves exactly as before.
+
 **Show a preload summary widget** (title: `profile_loaded`, loading: `"Loading profile…"`):
 
 ```html
@@ -516,6 +578,7 @@ Set internal variables from the loaded profile:
     <div class="pl-dot"></div>
     <span class="pl-status-text">STATUS_LINE</span>
   </div>
+  HANDOFF_LINE
   <button onclick="sendPrompt('Profile acknowledged — show action menu')"
     style="width:100%;margin-top:14px;padding:10px 16px;background:#C8FF49;color:#1F1E5D;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">
     Continue →
@@ -534,12 +597,16 @@ Set internal variables from the loaded profile:
 - `TIER` → `customer.tier`
 - `SCHEMA_CLASS` → `ga4` / `ua` (lowercase); use `ga4` class for custom/unknown schemas too
 - `ECOMMERCE_SCHEMA` → `inspection.ecommerceSchema` uppercased (e.g. `GA4`, `UA`, `Custom`)
-- `MODE` → `settings.mode` capitalised (e.g. `Test`, `Production`)
+- `MODE` → `Test` when `settings.mode` is `"test"`; `Production` when it is `"production"` (or the older name `"real"`)
 - `APP_KEY_TRUNCATED` → first 16 chars of `customer.appKey` + `…` (e.g. `d691d404c4f746a8…`)
 - `DELIVERY_URL_CONTENT` → if `acoustic.deliveryUrl` is non-empty: `<span class="mono" style="color:#706CFF;font-size:11px;word-break:break-all">URL</span>`; otherwise: `<span class="empty">Not yet uploaded</span>`
 - `SIGNALS_CONFIGURED` → count of signals where `enabled: true` in `signals`
 - `SIGNALS_TOTAL` → total signals in scope for this site (up to 9; the full set is available on every tier)
 - `INSPECTION_ROUND` → `inspection.round` (default `1` if absent)
+- `HANDOFF_LINE` → empty when the profile has no `handoff` object. Otherwise `<div class="pl-status" style="margin-top:8px"><div class="pl-dot" style="background:#706CFF"></div><span class="pl-status-text">TEXT</span></div>`, where `TEXT` is built from the Step 0c-H `HANDOFF|` output (or from `handoff.at`, `handoff.folder` and `handoff.result` when the script printed `SKIP`):
+  - with a result: `"Handed off to the coding assistant on DATE (FOLDER). Fixed there: FIXED_LIST. Readiness there: READINESS. Continuing here produces a new SDK."` Use `none recorded` when the fixed list is empty.
+  - without a result: `"Handed off to the coding assistant on DATE (FOLDER). No result saved there yet. Continuing here produces a new SDK."`
+  This is information only. It adds no button and no question, and routing is unchanged.
 - `STATUS_LINE` → derive from profile state:
   - `acoustic.deliveryUrl` absent → `"No prior SDK upload detected — ready to generate or re-inspect"`
   - `acoustic.sdkBundle.validated == false` → `"SDK config generated — pending signal validation"`
@@ -570,10 +637,7 @@ escalated = [s for s, v in ss.items() if v.get('completed') == False]
 print('escalated:', escalated)
 ```
 
-- **If `escalated` is non-empty:** re-present the SI-5 gate — "Apart from [ESCALATED_LIST], did you validate the remaining signals? Should we push this JS to the Media Gallery (Connect CMS)?" — with the three options including "Not yet — still validating".
-- **If `escalated` is empty:** re-present the main validation gate — "Did you validate all the signals? Should we push this JS to the Media Gallery (Connect CMS)?" — with the three options including "Not yet — still validating".
-
-In both cases skip re-inspection and re-generation entirely.
+Then re-present the **validation matrix** from Step 9 (`signal_validation_matrix`), built exactly as defined there: escalated signals appear greyed out, and every other signal's saved `validationResult` is pre-selected. Routing continues from the matrix as in Step 9 (SI-A onward), including "Not yet — come back later". Skip re-inspection and re-generation entirely. Set `action = resume_validation` for the analytics record.
 
 **Otherwise (`sdkBundle` absent, or `validated` is not `false`):** show the standard action menu:
 
@@ -638,7 +702,7 @@ Read these files before starting:
 - Read [references/sdk-console-messages.md](references/sdk-console-messages.md) when interpreting console output or configuring `triggers` triggers from customer-provided messages.
 - Read [references/output-contract.md](references/output-contract.md) before producing final deliverables.
 - Run `scripts/validate_profile.py` before generation.
-- Run `scripts/generate_sdk.py` to create deterministic mapping JSON, JavaScript, and review notes.
+- Run `scripts/generate_sdk_patched.py` to create deterministic mapping JSON, JavaScript, and review notes. Never call `scripts/generate_sdk.py` directly; it lacks the TODO block, the audience signal and the privacy-target update.
 
 ---
 
@@ -1608,7 +1672,7 @@ Options:
 
 ### 9. Validate and generate
 
-> **⛔ HARD STOP — Step 8b gate is a prerequisite.** Before calling `validate_profile.py` or `generate_sdk.py`, confirm that Step 8b has been completed in this session — both the `show_widget` inspection summary AND the `AskUserQuestion` gate must have been presented and the user must have selected "Generate SDK config now". If Step 8b was not completed, stop and run it now. Running the generator without the Step 8b gate is a skill defect.
+> **⛔ HARD STOP — Step 8b gate is a prerequisite.** Before calling `validate_profile.py` or `generate_sdk_patched.py`, confirm that Step 8b has been completed in this session — both the `show_widget` inspection summary AND the `AskUserQuestion` gate must have been presented and the user must have selected "Generate SDK config now". If Step 8b was not completed, stop and run it now. Running the generator without the Step 8b gate is a skill defect.
 
 Before running the generator, confirm the website profile `signals` block contains **only signals the site actually supports**. Remove entries for signals with no matching site functionality entirely rather than leaving them empty or commented out — this prevents the generator emitting dead code.
 
@@ -1626,8 +1690,8 @@ There is no tier-based removal: every signal is available on Pro, Premium, and U
 > | `fakeSignals` | `true` | `false` |
 >
 > - **First generation always uses test mode** — do NOT ask the user; default to `settings.mode = "test"` without prompting.
-> - **Switch to production only** when the user confirms validation is complete via the "Yes — push to production" option in the validation gate (Step 9). Never set `fakeSignals: false` before that confirmation.
-> - The generator (`generate_sdk.py`) enforces these values automatically via regex substitution — do not manually patch these flags in the generated JS.
+> - **Switch to production only** when validation is confirmed complete. **Submitting a fully resolved matrix counts as confirmation:** every in-scope signal is `passed`, `escalated`, or an exception the user accepted with "Continue with exceptions" (SI-J all resolved). Never set `fakeSignals: false` before that point.
+> - The generator (`generate_sdk_patched.py`) enforces these values automatically via regex substitution — do not manually patch these flags in the generated JS.
 
 Set `settings.mode` in the website profile JSON before running the generator:
 
@@ -1869,6 +1933,8 @@ The generator produces:
 
 **After generation — persist SDK config state to profile**
 
+`generate_sdk_patched.py` prints a JSON result on success. Take its `bundle` value (the absolute path of the SDK file it just wrote) and substitute it for `<BUNDLE_PATH>` below. Do not construct this path by hand.
+
 Immediately after a successful generation, write the config state back to the website profile so the skill can resume from the validation step on a future run without re-running the full onboarding:
 
 ```python
@@ -1884,7 +1950,7 @@ profile = json.loads(profile_path.read_text())
 
 profile.setdefault("acoustic", {})
 profile["acoustic"]["sdkBundle"] = {
-    "path": str(profiles_dir.parent / "output" / f"<SLUG>-<tier>" / "acoConnectSdkConfig-<slug>.js"),
+    "path": "<BUNDLE_PATH>",   # the "bundle" value from the generator's JSON output (absolute path)
     "generatedAt": datetime.datetime.utcnow().isoformat(),
     "mode": "test",
     "validated": False
@@ -2002,7 +2068,7 @@ Write these as literal numbered steps (substitute the real domain-slug/domain):
 7. Open DevTools (F12 or Cmd+Opt+I) → **Console** tab. This is where to watch for signals — see "Where to look in the console" below.
 8. This config currently has `fakeSignals: true` (test/console mode) — no data reaches Acoustic yet, signals only print to console.
 9. **To update the SDK for a new round:** regenerate `acoConnectSdkConfig-<domain-slug>.js` and save it to the same path — the Tampermonkey script will pick it up automatically on the next page reload. No script reinstall needed.
-10. **To later switch to real mode** (send actual data to Connect): regenerate with `settings.mode = "real"` — the new config will have `fakeSignals: false`.
+10. **To later switch to real mode** (send actual data to Connect): regenerate with `settings.mode = "production"` — the new config will have `fakeSignals: false`.
 
 **Section: Method 2 — Chrome DevTools Override**
 
@@ -2153,11 +2219,24 @@ print(signal_matrix_rows)
 
 Show the matrix with `mcp__visualize__show_widget` (title: `signal_validation_matrix`, loading: `"Loading validation matrix…"`). Embed `SIGNAL_MATRIX_ROWS` (the Python output) in place of the placeholder comment. **If `show_widget` is unavailable:** apply the Category 3a fallback — run `AskUserQuestion` once per in-scope signal in canonical signal order, each with options "✅ Passed / ⚠️ Issue found / ⏭ Not tested / 🚫 Blocked". Collect all results then route to sub-flows exactly as if they came from the matrix `sendPrompt`.
 
+**`ESCALATION_GUIDANCE` placeholder.** Replace the `<!-- ESCALATION_GUIDANCE -->` comment before rendering:
+
+- If any signal has `completed == False` (an escalated row is in the matrix), replace it with exactly:
+  ```html
+  <div style="padding:8px 12px;background:#EEF0FF;border-radius:6px;font-size:11px;color:#1F1E5D;margin-bottom:10px">Reach out to Services for assistance, or use the coding assistant to fix the signal config once all steps in this skill are complete.</div>
+  ```
+- Otherwise, remove the comment and render nothing in its place.
+
+This is information only. It adds no option, and the matrix routing is unchanged. In the Category 3a fallback, output the same sentence once as plain text before the first `AskUserQuestion`, only when an escalated signal exists.
+
 ```html
 <div style="padding:0.75rem 0;font-family:var(--font-sans)">
   <div style="font-size:13px;font-weight:600;color:var(--color-text-primary);margin-bottom:4px">Signal validation</div>
   <div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:14px">
     Select a result for every signal you tested. Escalated signals are shown for reference.
+  </div>
+  <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:14px">
+    When every signal is resolved, submitting switches the SDK config to production mode (<code>fakeSignals: false</code>).
   </div>
 
   <div id="matrix" style="margin-bottom:16px">
@@ -2167,6 +2246,8 @@ Show the matrix with `mcp__visualize__show_widget` (title: `signal_validation_ma
   <div id="pending-warn" style="display:none;padding:8px 12px;background:#FFF3CD;border-radius:6px;font-size:11px;color:#7A6800;margin-bottom:10px">
     ⚠️ Please select a result for every signal before continuing.
   </div>
+
+  <!-- ESCALATION_GUIDANCE -->
 
   <div style="display:flex;gap:8px">
     <button onclick="submitMatrix()"
@@ -2515,6 +2596,9 @@ If any signals remain `blocked` or `not_tested` after the follow-ups, show one e
     The following signals were recorded as exceptions. They will be documented in the final report
     but will not block the remaining workflow.
   </div>
+  <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:8px">
+    If every other signal is resolved, continuing switches the SDK config to production mode (<code>fakeSignals: false</code>).
+  </div>
   <!-- list blocked/not_tested signals here -->
   <div style="display:flex;gap:8px;margin-top:14px">
     <button onclick="sendPrompt('Exceptions: continue with exceptions')"
@@ -2601,7 +2685,26 @@ If no improved evidence is found, set `correctionResult: 'no_better_evidence_fou
 
 **SI-G: Regenerate SDK for corrected signals**
 
-After updating the profile with any improved mappings, regenerate the SDK in test mode (same command as Step 9 Step B). Then present the updated config using the existing SI-3d `signal_retest_bundle` widget, listing only the corrected signals.
+After updating the profile with any improved mappings, regenerate the SDK in test mode (same command as Step 9 Step B), then update `sdkBundle.path` and `sdkBundle.generatedAt` from the generator's JSON output (`bundle`). Call `mcp__cowork__present_files` with the regenerated `acoConnectSdkConfig-<domain-slug>.js` only. Then show the `signal_retest_bundle` widget (title: `signal_retest_bundle`, loading: `"Preparing corrected config…"`). Substitute `CORRECTED_SIGNAL_ROWS` with one row per signal in `to_reinspect` and `SDK_FILENAME` with the file name:
+
+```html
+<div style="padding:0.75rem 0;font-family:var(--font-sans)">
+  <div style="font-size:13px;font-weight:600;color:var(--color-text-primary);margin-bottom:4px">Corrected config ready to retest</div>
+  <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px">
+    <code>SDK_FILENAME</code> was regenerated in test mode. If you use Tampermonkey, reload the page — it picks up the new file automatically. If you use a DevTools override, paste the new file contents into the override again.
+  </div>
+  <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+    <!-- CORRECTED_SIGNAL_ROWS: one per corrected signal:
+    <div style="background:var(--color-background-secondary);border-radius:8px;padding:8px 12px;font-size:12px"><strong>SIGNAL_KEY</strong> <span style="color:var(--color-text-tertiary)">— attempt N of MAX · CHANGE_SUMMARY</span></div>
+    -->
+  </div>
+  <button onclick="sendPrompt('Retest ready — show retest matrix')" style="width:100%;padding:9px 16px;background:#1F1E5D;color:#C8FF49;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">I've retested — record results</button>
+</div>
+```
+
+`CHANGE_SUMMARY` is a short plain description of what was changed for that signal (for example `trigger moved to add_to_cart dataLayer event`), or `no better evidence found` when the correction result was `no_better_evidence_found`.
+
+When `sendPrompt` fires `'Retest ready — show retest matrix'`: show SI-I below. If `show_widget` is unavailable, output the same content as plain text (≤5 lines), then run SI-I's Category 3a fallback.
 
 ---
 
@@ -2635,7 +2738,7 @@ retest_rows_html = "\n".join(retest_rows)
 print(retest_rows_html)
 ```
 
-Show with `mcp__visualize__show_widget` (title: `signal_retest_matrix`, loading: `"Loading retest…"`). Use the same `submitMatrix` JS pattern as the main matrix but submit as `'RetestMatrix: {...}'`.
+Show with `mcp__visualize__show_widget` (title: `signal_retest_matrix`, loading: `"Loading retest…"`). Use the same `submitMatrix` JS pattern as the main matrix but submit as `'RetestMatrix: {...}'`. Include the same line as the main matrix: "When every signal is resolved, submitting switches the SDK config to production mode (`fakeSignals: false`)."
 
 **Parse `RetestMatrix` response and update profile:**
 
@@ -2724,9 +2827,12 @@ If `newly_esc` (from the retest block above) is non-empty, show the escalation w
     <strong>Please contact the Acoustic Services team to assist in configuring these signals.</strong><br>
     Reach out to your Customer Success Manager if you have any questions.
   </div>
+  ESCALATION_GUIDANCE_LINE
   <button onclick="sendPrompt('Acknowledged — continue')" style="background:#1F1E5D;color:#C8FF49;border:none;border-radius:8px;padding:8px 20px;font-size:12px;font-weight:600;cursor:pointer;width:100%">Continue</button>
 </div>
 ```
+
+**`ESCALATION_GUIDANCE_LINE`:** replace it with `<div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:10px">Reach out to Services for assistance, or use the coding assistant to fix the signal config once all steps in this skill are complete.</div>`. This is information only; it adds no option.
 
 Wait for `sendPrompt('Acknowledged — continue')`.
 
@@ -2766,7 +2872,7 @@ print('passed:', passed)
 |---|---|---|
 | Pro / Premium / Ultimate | All resolved | Proceed to Step 11 → Step 12 → Step 13 → Step 10-pre (deployment choice). Identical on every tier. |
 
-> ⚠️ **GUARDRAIL — "yes push to production" path (every tier):**
+> ⚠️ **GUARDRAIL — production path after a fully resolved matrix (every tier):**
 > - **DO NOT** skip Steps 11, 12, or 13. Post-generation edits, JS review, and browser verification must complete before Step 10-pre runs. Step 10 (CMS upload) only runs if Step 10-pre Option 2 is selected.
 > - **DO NOT** auto-pass any signal. Only signals explicitly marked `passed` in the matrix (or retest) with `completed: true` are considered validated.
 > - **DO NOT** increment attempts for blocked, not_tested, or passed signals.
@@ -2776,9 +2882,9 @@ print('passed:', passed)
 
 **Production flip — after validation confirmation (every tier)**
 
-When the user confirms "Yes — push to production" (or all signals resolve at SI-J), execute this sequence **before** Step 11/12/13:
+When SI-J finds every signal resolved — the user's submission of a fully resolved matrix, which counts as confirmation — execute this sequence **before** Step 11/12/13:
 
-1. **Set `settings.mode = "production"` in the profile** and write it to disk:
+1. **Set `settings.mode = "production"` in the profile** and write it to disk. `validate_profile.py` accepts `"test"` and `"production"`, plus `"real"`, the older name for production that profiles saved by earlier versions may still hold; both production names produce the same flags. (`sdkBundle.mode` below is a separate field and also says `"production"`.)
 ```python
 import json, pathlib, glob as _glob
 _dirs = _glob.glob('/sessions/*/mnt/SDK-config-assistant/profiles')
@@ -2789,7 +2895,7 @@ profile_path.write_text(json.dumps(profile, indent=2))
 print('mode set to production')
 ```
 
-2. **Regenerate the SDK config** using `generate_sdk.py` — same as Step 9 but with `mode = "production"`. The generator sets `fakeSignals: false`, `errorLog: false`, `eventLog: false`, `signalsLog: true`. Confirm the output file flags before proceeding.
+2. **Regenerate the SDK config** with `generate_sdk_patched.py`, exactly as in Step 9 Step B (same `--base-js assets/initLogSignal.js` and the same `--out` folder), now with `settings.mode = "production"`. If `validate_profile.py` reports errors in production mode (required mappings not confirmed), stop and show them as a single blocker line; do not switch the mode back to fake it. Never use `generate_sdk.py` here: it skips the TODO hard-block, the audience signal and the privacy-target update. The generator sets `fakeSignals: false`, `errorLog: false`, `eventLog: false`, `signalsLog: true`. If it exits with code 2, resolve the TODOs exactly as in Step 9 Step C. Confirm the output file flags before proceeding.
 
 3. **Run Step 12 (JS review)** — confirm `fakeSignals: false` and `errorLog: false` in the regenerated file. This is a mandatory check. Do not upload a config still showing `fakeSignals: true`.
 
@@ -2804,11 +2910,11 @@ print('mode set to production')
 
 5. **Deliver the updated config file** — call `SendUserFile` on the regenerated `acoConnectSdkConfig-{SLUG}.js` so the operator has the production copy. Caption: `"Production config — fakeSignals: false. Delivery URL unchanged."`.
 
-6. **Update the profile** — set `sdkBundle.mode = "production"`, `sdkBundle.validated = true`, `sdkBundle.generatedAt` = now, and write to disk.
+6. **Update the profile** — set `sdkBundle.mode = "production"`, `sdkBundle.validated = true`, `sdkBundle.generatedAt` = now, `sdkBundle.path` = the `bundle` value from the generator's JSON output in step 2, and write to disk.
 
 7. **Proceed to Step 14 and Step 14b** (final response + analytics sidecar + completion widget + feedback).
 
-> ⛔ **HARD STOP — never flip to production mode without user confirmation.** The "Yes — push to production" response (or SI-J all-resolved routing) is the ONLY trigger. Never auto-flip `fakeSignals` during initial generation, mid-session, or based on any signal being marked `passed`. The flip requires explicit confirmation.
+> ⛔ **HARD STOP — never flip to production mode without user confirmation.** The only confirmation is the user submitting a fully resolved matrix (validation or retest), reached through SI-J with every signal `passed`, `escalated`, or an accepted exception. Never flip `fakeSignals` during initial generation, mid-session, after a partial submission, or because some signals are marked `passed`. "Not yet — come back later" never flips it.
 
 ---
 
@@ -3062,8 +3168,9 @@ The SDK config is ~40KB — too large for a single `javascript_tool` call. Split
 python3 - <<'EOF'
 import math, re, sys
 import glob as _g
-_out = _g.glob('/sessions/*/mnt/SDK-config-assistant/outputs/{SLUG}/acoConnectSdkConfig-{SLUG}.js')
-path = _out[0] if _out else f'/sessions/*/mnt/SDK-config-assistant/outputs/{{SLUG}}/acoConnectSdkConfig-{{SLUG}}.js'
+_out = sorted(_g.glob('/sessions/*/mnt/SDK-config-assistant/outputs/*/acoConnectSdkConfig-{SLUG}.js'), key=__import__('os').path.getmtime, reverse=True)
+if not _out: sys.exit('SDK config not found under outputs/*/ for {SLUG}')
+path = _out[0]
 content = open(path).read()
 n = 5
 sz = math.ceil(len(content) / n)
@@ -4038,7 +4145,7 @@ If a site's cookie consent prevented JS injection during inspection, note it exp
 
 ### Step 14b — Analytics sidecar, completion, and feedback
 
-This step runs immediately after the Step 14 final response. It has four sub-steps in strict order: (A) write analytics, (B) show completion widget, (C) collect feedback, (D) session backup.
+This step runs immediately after the Step 14 final response. It has four sub-steps in strict order: (A) write analytics, (B) show completion widget, (C) collect feedback, (D) session backup. One optional sub-step follows them: (E) coding assistant handoff, which runs only when the user clicks **Use coding assistant** on the `feedback_saved` widget and confirms. Nothing in A–D changes when E is not chosen.
 
 #### 14b-A — Write the analytics sidecar
 
@@ -4125,6 +4232,7 @@ run_record = {
     'reasonCodes': env_json('REASON_CODES', []),
     'feedbackId': None,
     'feedbackSkipped': False,
+    'handoffChoice': None,   # set by Step 14b-E only if the user clicks "Use coding assistant"
 }
 
 # Copy per-signal status from operational profile — read-only snapshot for analytics
@@ -4213,7 +4321,7 @@ except Exception as e:
 | `signalsInScope` | All signals applicable to the site (never tier-limited) |
 | `signalsConfigured` | Signals with non-null, non-TODO enhance functions in generated config |
 | `signalsEscalated` | Signals flagged as requiring manual resolution |
-| `bundleGenerated` | `true` only if `generate_sdk.py` ran and produced a file with 0 TODO lines |
+| `bundleGenerated` | `true` only if `generate_sdk_patched.py` ran and produced a file with 0 TODO lines |
 | `bundleFilename` | Actual output filename from generation |
 | `staticValidationPassed` | `true` only if `validate_profile.py` returned 0 errors |
 | `browserValidationPassed` | `true` only if Step 13 browser verify was completed and confirmed by user |
@@ -4237,6 +4345,8 @@ except Exception as e:
 `workflowOutcome`: `completed` · `completed_with_exceptions` · `stopped_by_user` · `blocked` · `failed`
 
 `readiness`: `not_ready` · `ready_for_staging` · `ready_for_production_review` · `production_ready`
+
+`handoffChoice` (set only by Step 14b-E; `null` when the user never clicked "Use coding assistant"): `declined` · `cancelled` · `new` · `replaced` · `alongside` · `failed`
 
 `issueAreas`: `inspection` · `signal_mapping` · `generation` · `static_validation` · `user_validation` · `browser_verification` · `cms_upload` · `workflow` · `other`
 
@@ -4557,15 +4667,15 @@ print('OK')
 "
 ```
 
-Do not create an empty feedback entry. After the script completes (success or warning), immediately run Step 14b-D (session backup) — silently. After 14b-D completes (success or failure), respond with the single close line: "Session closed. Run the skill again whenever you're ready for the next customer."
+Do not create an empty feedback entry. After the script completes (success or warning), immediately run Step 14b-D (session backup) — silently. After 14b-D completes (success or failure), show the `feedback_saved` widget below using the **Feedback skipped** values, so the "Use coding assistant" option is available on this route too; its Close session button and its countdown end the session with the single close line: "Session closed. Run the skill again whenever you're ready for the next customer."
 
 ---
 
 ##### `feedback_saved` widget
 
-> ⛔ **HARD GUARDRAIL — widget fidelity (feedback saved).** This widget MUST be rendered verbatim with only the six placeholder tokens substituted (see mapping below). It MUST include the session summary card, both "Close session" (`sendPrompt('Session complete')`) and "New customer" (`sendPrompt('New customer')`) buttons, and the 30-second countdown auto-close. Never substitute a plain card, a prose line, or any other custom widget here. Never show this widget before 14b-D completes. Showing it early or in a wrong format is a skill defect.
+> ⛔ **HARD GUARDRAIL — widget fidelity (feedback saved).** This widget MUST be rendered verbatim with only the eight placeholder tokens substituted (see mapping below). It MUST include the session summary card, the "Close session" (`sendPrompt('Session complete')`), "New customer" (`sendPrompt('New customer')`) and "Use coding assistant" (`sendPrompt('Use coding assistant')`) buttons, and the 30-second countdown auto-close. Never substitute a plain card, a prose line, or any other custom widget here. Never show this widget before 14b-D completes. Showing it early or in a wrong format is a skill defect.
 
-Show using `mcp__visualize__show_widget` (title: `feedback_saved`, loading: `"Saving feedback…"`). Populate all six tokens from the session profile before rendering:
+Show using `mcp__visualize__show_widget` (title: `feedback_saved`, loading: `"Saving feedback…"`). Populate all tokens from the session profile before rendering:
 
 | Token | Source | Example |
 |---|---|---|
@@ -4576,6 +4686,7 @@ Show using `mcp__visualize__show_widget` (title: `feedback_saved`, loading: `"Sa
 | `SIGNALS_CONFIGURED` | count of enabled signals + total in scope | `9 of 9 configured` |
 | `OUTCOME_LABEL` | outcome label mapping below | `Minor changes needed` |
 | `OUTCOME_COLOR` | outcome colour mapping below | `#706CFF` |
+| `HANDOFF_BADGE` | handoff badge rule below | `<span …>Recommended</span>` or empty |
 
 **Outcome → FEEDBACK_SUMMARY:**
 - `production_ready` → `"Config rated production ready. Feedback saved."`
@@ -4594,6 +4705,17 @@ Show using `mcp__visualize__show_widget` (title: `feedback_saved`, loading: `"Sa
 - `minor_changes` → `#706CFF`
 - `major_changes` → `#FF9500`
 - `run_failed` → `#FF5050`
+- feedback skipped → `#5A5D77`
+
+**Feedback skipped** (reached from the skip route): `FEEDBACK_SUMMARY` → `"Feedback skipped."`, `OUTCOME_LABEL` → `Not rated`.
+
+**`HANDOFF_BADGE` rule.** Read the operational profile. If any **handover signal** exists, set `HANDOFF_BADGE` to:
+`<span style="display:inline-block;background:#00DF8F;color:#1F1E5D;font-size:9px;font-weight:700;border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:middle;text-transform:uppercase">Recommended</span>`
+Otherwise set it to an empty string. The button is shown in both cases.
+
+**Handover signals** (used here, in E-1 and in E-3) are: every signal in `acoustic.signalStatus` whose `validationResult` is `escalated` or `blocked`, **plus** every signal named in `profile.blockers[]` (by its `signal` key) that is not `passed` in `acoustic.signalStatus`. The second group covers signals that never made it into the SDK, such as a sign-in on a separate host or an order page that could not be inspected. They have no `signalStatus` entry, so reading `signalStatus` alone misses them.
+
+**Requirement.** The coding assistant (`sdk-config-coding`) is in the same plugin but runs only in Claude Code (terminal or IDE), never in Cowork. The button is always shown; the `handoff_confirm` widget tells the user where it runs before anything is copied.
 
 ```html
 <div style="font-family:var(--font-sans,system-ui);max-width:480px;padding:1.5rem;box-sizing:border-box">
@@ -4617,7 +4739,8 @@ Show using `mcp__visualize__show_widget` (title: `feedback_saved`, loading: `"Sa
     <button onclick="sendPrompt('Session complete')" style="flex:1;background:#1F1E5D;color:#fff;border:none;border-radius:8px;padding:10px 0;font-size:13px;font-weight:600;cursor:pointer">Close session</button>
     <button onclick="sendPrompt('New customer')" style="flex:1;background:transparent;color:#706CFF;border:2px solid #706CFF;border-radius:8px;padding:10px 0;font-size:13px;font-weight:600;cursor:pointer">New customer</button>
   </div>
-  <div style="font-size:11px;color:var(--color-text-secondary,#5A5D77);text-align:center">Auto-closing in <span id="fs-cd">30</span>s</div>
+  <button onclick="if(window._fsCdIv){clearInterval(window._fsCdIv);}var c=document.getElementById('fs-cd-wrap');if(c)c.textContent='Auto-close paused';sendPrompt('Use coding assistant')" style="width:100%;background:var(--color-background-secondary);color:var(--color-text-primary);border:1px solid var(--color-border-tertiary);border-radius:8px;padding:10px 0;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:1rem">Use coding assistant HANDOFF_BADGE</button>
+  <div id="fs-cd-wrap" style="font-size:11px;color:var(--color-text-secondary,#5A5D77);text-align:center">Auto-closing in <span id="fs-cd">30</span>s</div>
 </div>
 <script>
 (function(){
@@ -4633,13 +4756,289 @@ Show using `mcp__visualize__show_widget` (title: `feedback_saved`, loading: `"Sa
 </script>
 ```
 
-Replace all seven tokens (`FEEDBACK_SUMMARY`, `CUSTOMER_NAME`, `DOMAIN`, `TIER`, `SIGNALS_CONFIGURED`, `OUTCOME_LABEL`, `OUTCOME_COLOR`) before rendering. Do not render any literal placeholder text. The countdown uses `window._fsCdIv` as a guard so re-renders clear the old timer before starting a fresh 30-second countdown.
+Replace all eight tokens (`FEEDBACK_SUMMARY`, `CUSTOMER_NAME`, `DOMAIN`, `TIER`, `SIGNALS_CONFIGURED`, `OUTCOME_LABEL`, `OUTCOME_COLOR`, `HANDOFF_BADGE`) before rendering. Do not render any literal placeholder text. The countdown uses `window._fsCdIv` as a guard so re-renders clear the old timer before starting a fresh 30-second countdown.
 
 **When `sendPrompt` fires `'Session complete'`:**
 Respond with a single line: "Session closed. Run the skill again whenever you're ready for the next customer." Do not run Step 14b-D here — it already ran when the user submitted or skipped feedback. Do not retain any customer context, `runId`, or analytics variables in subsequent messages.
 
+**When `sendPrompt` fires `'Use coding assistant'`:**
+Go to **Step 14b-E** below. The button has already stopped the countdown. Do not close the session and do not clear any context yet.
+
 **When `sendPrompt` fires `'New customer'`:**
 Clear all customer context (including `runId`, `runStartedAt`, and all run-state variables) and restart from the **Pre-step** (persistent storage check) exactly as if the skill was freshly invoked. Do not carry over any profile data, customer name, tier, signals, or analytics variables from the completed session.
+
+---
+
+#### 14b-E — Coding assistant handoff (optional)
+
+> ⛔ **HARD GUARDRAIL — entry point.** This sub-step runs **only** when `sendPrompt` fires `'Use coding assistant'` from the `feedback_saved` widget (or its `AskUserQuestion` fallback). It never runs on its own, never runs before 14b-D has completed, and never changes anything in `outputs/`, the operational profile's `signals`, `acoustic.signalStatus`, `settings` or `acoustic.sdkBundle`. The only profile change it makes is the top-level `handoff` object, written in E-3 after the files are copied. The only analytics change is `handoffChoice` / `handoffAt` on this run's record.
+
+The coding assistant (`sdk-config-coding`) is a second skill in the same plugin, but it runs only in Claude Code (terminal or IDE), never in Cowork. The two skills share nothing except the files written here. Handoffs made by older versions of this skill went to `SDK-coding-assistant/sites/` (the coding assistant's old name); Step 0c-H still reads results from there. This skill cannot open it, link to it or check whether it is installed. It can only copy the files and tell the user where they are.
+
+**Silence rule.** E-2 and E-3 run silently: no prose between tool calls, as everywhere else in this skill.
+
+##### E-1 — Confirm
+
+Show `mcp__visualize__show_widget` (title: `handoff_confirm`, loading: `"Loading…"`). If `show_widget` is unavailable, use `AskUserQuestion` with the same question and the two options **"Yes, hand off"** / **"No, go back"**.
+
+Substitute `HOSTNAME` (derived as in E-2) and `ESCALATED_LINE`: when any **handover signal** exists (defined under `HANDOFF_BADGE` above), `ESCALATED_LINE` is `<div style="font-size:12px;color:var(--color-text-primary);margin-bottom:10px"><strong>Still need work:</strong> SIGNAL_LIST</div>` with the comma-separated profile keys; otherwise it is empty.
+
+```html
+<div style="font-family:var(--font-sans);padding:1.25rem;max-width:480px">
+  <div style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin-bottom:8px">Continue in the coding assistant?</div>
+  ESCALATED_LINE
+  <div style="font-size:12px;color:var(--color-text-secondary);line-height:1.6;margin-bottom:12px">
+    The coding assistant lets you hand-write and test signals against the live site. It runs only in <strong>Claude Code</strong> (terminal or IDE), not here. It is the sdk-config-coding skill, which comes with this same plugin.<br><br>
+    The SDK and its report will be copied to <code>SDK-config-coding/sites/HOSTNAME/</code> inside the folder added to this session, in test mode (<code>fakeSignals: true</code>). The files in this skill's outputs are not changed.<br><br>
+    <strong>The handoff is one-way for code.</strong> Changes made in the coding assistant can't be brought back into this skill. Re-running this skill later produces a new SDK. The coding assistant can save a short summary of what it fixed, which this skill shows the next time you load this profile.
+  </div>
+  <div style="display:flex;gap:8px">
+    <button onclick="sendPrompt('Handoff: yes')" style="flex:1;background:#1F1E5D;color:#C8FF49;border:none;border-radius:8px;padding:10px 0;font-size:13px;font-weight:600;cursor:pointer">Yes, hand off</button>
+    <button onclick="sendPrompt('Handoff: no')" style="flex:1;background:var(--color-background-secondary);color:var(--color-text-primary);border:1px solid var(--color-border-tertiary);border-radius:8px;padding:10px 0;font-size:13px;font-weight:600;cursor:pointer">No, go back</button>
+  </div>
+</div>
+```
+
+- `'Handoff: no'` → record `handoffChoice = "declined"` with the E-4 analytics script, then re-render `feedback_saved` exactly as before (the countdown restarts). Nothing else is written.
+- `'Handoff: yes'` → E-2.
+
+##### E-2 — Check the destination
+
+```bash
+SLUG="<SLUG>" python3 -c "
+import json, os, re, glob, pathlib
+mnt = glob.glob('/sessions/*/mnt')
+if not mnt: print('ERROR|no_folder'); raise SystemExit
+root = pathlib.Path(mnt[0])
+p = json.loads((root/'SDK-config-assistant'/'profiles'/(os.environ['SLUG']+'.json')).read_text())
+d = (p.get('customer',{}).get('productionDomain') or '').strip().lower()
+d = re.sub(r'^[a-z][a-z0-9+.-]*://', '', d).split('/')[0].split('?')[0].split('#')[0].split(':')[0].rstrip('.')
+if not d: print('ERROR|no_domain'); raise SystemExit
+dest = root/'SDK-config-coding'/'sites'/d
+print(('EXISTS|' if dest.exists() else 'NEW|') + d)
+"
+```
+
+`<hostname>` is `customer.productionDomain` in lower case with scheme, port, path and trailing dot removed; `www.` is kept.
+
+- `NEW|<hostname>` → E-3 with `CHOICE=new`.
+- `ERROR|…` → go to the failure path in E-3.
+- `EXISTS|<hostname>` → the folder may hold hand-written work that exists nowhere else. Show `mcp__visualize__show_widget` (title: `handoff_destination_exists`, loading: `"Loading…"`), or the `AskUserQuestion` fallback with the same three options:
+
+```html
+<div style="font-family:var(--font-sans);padding:1.25rem;max-width:480px">
+  <div style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin-bottom:8px">A folder for HOSTNAME already exists</div>
+  <div style="font-size:12px;color:var(--color-text-secondary);line-height:1.6;margin-bottom:12px">It's in <code>SDK-config-coding/sites/</code> and may contain work done in the coding assistant. Nothing is deleted or overwritten either way.</div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <button onclick="sendPrompt('Handoff destination: replaced')" style="width:100%;text-align:left;background:#1F1E5D;color:#C8FF49;border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer">Replace (keep a backup)</button>
+    <button onclick="sendPrompt('Handoff destination: alongside')" style="width:100%;text-align:left;background:var(--color-background-secondary);color:var(--color-text-primary);border:1px solid var(--color-border-tertiary);border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer">Copy alongside</button>
+    <button onclick="sendPrompt('Handoff destination: cancelled')" style="width:100%;text-align:left;background:var(--color-background-secondary);color:var(--color-text-secondary);border:1px solid var(--color-border-tertiary);border-radius:8px;padding:10px 14px;font-size:13px;cursor:pointer">Cancel</button>
+  </div>
+</div>
+```
+
+- `replaced` → E-3 with `CHOICE=replaced`. The old folder is renamed to `<hostname>.bak-<YYYYMMDD-HHMMSS>` (UTC).
+- `alongside` → E-3 with `CHOICE=alongside`. Files go to `<hostname>-<YYYYMMDD>`, or `<hostname>-<YYYYMMDD-HHMMSS>` if that exists too.
+- `cancelled` → record `handoffChoice = "cancelled"` with the E-4 analytics script, then re-render `feedback_saved`. Nothing is copied or renamed.
+
+##### E-3 — Copy the files
+
+Run this once. `<READINESS>` is the Step 14 readiness label. Never pass the test-account password or any other credential into this command.
+
+```bash
+SLUG="<SLUG>" RUN_ID="<RUN_ID>" CHOICE="<new|replaced|alongside>" READINESS="<READINESS>" \
+python3 -c "
+import json, os, re, glob, pathlib, datetime
+
+def out(status, **kw):
+    print(json.dumps(dict(status=status, **kw))); raise SystemExit
+
+slug, choice = os.environ['SLUG'], os.environ['CHOICE']
+run_id, readiness = os.environ.get('RUN_ID',''), os.environ.get('READINESS','')
+now = datetime.datetime.utcnow()
+iso = now.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+mnt = glob.glob('/sessions/*/mnt')
+if not mnt: out('failed', reason='no_folder')
+root = pathlib.Path(mnt[0])
+cfg_root = root/'SDK-config-assistant'
+profile_path = cfg_root/'profiles'/(slug+'.json')
+profile = json.loads(profile_path.read_text())
+cust = profile.get('customer', {})
+raw_domain = cust.get('productionDomain') or ''
+
+# Same rules as the generator (generate_sdk_patched.py slugify / domain_slug)
+def slugify(v): return re.sub(r'[^a-z0-9]+', '-', v.lower()).strip('-') or 'customer'
+def domain_slug(v):
+    v = re.sub(r'^www\d*\.', '', v.lower().strip()).split('.')[0]
+    return re.sub(r'[^a-z0-9]', '', v) or 'customer'
+host = re.sub(r'^[a-z][a-z0-9+.-]*://', '', raw_domain.strip().lower()).split('/')[0].split('?')[0].split('#')[0].split(':')[0].rstrip('.')
+if not host: out('failed', reason='no_domain')
+bundle_name = 'acoConnectSdkConfig-' + domain_slug(raw_domain) + '.js'
+cust_slug = slugify(cust.get('name',''))
+
+# 1. Locate this run's SDK. An exact file name never matches *.tamperMonkeyConfig.js.
+bp = (profile.get('acoustic',{}).get('sdkBundle',{}) or {}).get('path') or ''
+if bp and pathlib.Path(bp).name == bundle_name and pathlib.Path(bp).is_file():
+    sdk = pathlib.Path(bp)
+else:
+    c = []
+    out_roots = [cfg_root/'outputs', root/'.claude'/'skills'/'sdk-config-assistant'/'outputs']
+    for name in dict.fromkeys([bundle_name, 'acoConnectSdkConfig-' + domain_slug(host) + '.js']):
+        for o in out_roots:
+            c += glob.glob(str(o/(cust_slug + '*')/name)) + glob.glob(str(o/(slug + '*')/name))
+        c = sorted(set(c), key=os.path.getmtime, reverse=True)
+        if c: break
+    if not c: out('failed', reason='sdk_not_found', file=bundle_name)
+    sdk = pathlib.Path(c[0])
+review_src = sdk.parent/(cust_slug + '-implementation-review.md')
+if not review_src.is_file(): out('failed', reason='review_not_found', file=review_src.name)
+
+# 2. Test-mode loader: set the four flags in the copy only. The source file is never written.
+js = sdk.read_text(encoding='utf-8')
+missing = []
+for flag, val in (('fakeSignals','true'), ('errorLog','true'), ('eventLog','false'), ('signalsLog','true')):
+    js, n = re.subn(r'(\b' + flag + r'\s*:\s*)(true|false)', r'\g<1>' + val, js)
+    if n == 0: missing.append(flag)
+if 'fakeSignals' in missing or re.search(r'\bfakeSignals\s*:\s*false', js):
+    out('failed', reason='cannot_set_test_mode', file=sdk.name)
+
+# 3. Signal config: scrubbed copy of the operational profile, plus handoffMeta.
+KEY = re.compile(r'^(.*password.*|.*passwd.*|.*secret.*|.*token|.*tokens|authorization|.*credential.*|cookie|cookies|sessionid|session_id)$', re.I)
+def scrub(o):
+    if isinstance(o, dict): return {k: scrub(v) for k, v in o.items() if not KEY.search(str(k))}
+    if isinstance(o, list): return [scrub(v) for v in o]
+    return o
+cfg_copy = scrub(json.loads(profile_path.read_text()))
+cfg_copy.pop('handoff', None)
+cfg_copy['handoffMeta'] = {
+    'profileSlug': slug, 'handedOffAt': iso, 'originalSdkFileName': sdk.name,
+    'modeAtHandoff': 'test',
+    'configSkillMode': (profile.get('settings',{}) or {}).get('mode',''),
+    'readinessAtHandoff': readiness,
+}
+
+# Handover signals: escalated/blocked in signalStatus, plus blockers[] signals that never passed
+ss = profile.get('acoustic',{}).get('signalStatus',{}) or {}
+blk = [b for b in (profile.get('blockers') or [])
+       if isinstance(b, dict) and b.get('signal') and (ss.get(b['signal']) or {}).get('validationResult') != 'passed']
+handed = list(dict.fromkeys([s for s, v in ss.items() if v.get('validationResult') in ('escalated','blocked')] + [b['signal'] for b in blk]))
+cfg_copy['handoffMeta']['signalsHandedOver'] = handed
+cfg_copy['handoffMeta']['blockersAtHandoff'] = [{k: b.get(k) for k in ('signal','severity','summary','resolution')} for b in blk]
+
+# 4. Review copy with a Handoff section. The original in outputs/ is not changed.
+rows = ['| ' + ' | '.join([s, str(v.get('validationResult','')), str(v.get('attempts',0)), ', '.join(v.get('reasonCodes',[]) or [])]) + ' |' for s, v in ss.items()]
+rows += ['| ' + ' | '.join([b['signal'], 'blocked (not in SDK)', '0', 'blocker: ' + str(b.get('summary') or 'not stated')]) + ' |'
+         for b in blk if b['signal'] not in ss]
+review_txt = review_src.read_text(encoding='utf-8').rstrip() + '\n\n## Handoff\n\n' + '\n'.join([
+    '- **Handed off to:** sdk-config-coding',
+    '- **Handed off at:** ' + iso,
+    '- **Original SDK file name:** ' + sdk.name,
+    '- **Readiness at handoff:** ' + readiness,
+    '- **Mode at handoff:** test (fakeSignals: true, errorLog: true, eventLog: false, signalsLog: true set in the handed-off copy only)',
+    '', '| Signal | Result | Attempts | Reason codes |', '|---|---|---:|---|'] + rows) + '\n'
+
+# 5. Write everything into a hidden staging folder first, then move it into place.
+sites = root/'SDK-config-coding'/'sites'
+sites.mkdir(parents=True, exist_ok=True)
+if choice == 'new' and (sites/host).exists(): out('failed', reason='destination_appeared')
+if choice == 'replaced' and not (sites/host).exists(): choice = 'new'
+stage = sites/('.incoming-' + host + '-' + now.strftime('%Y%m%d-%H%M%S'))
+(stage/'handoff').mkdir(parents=True)
+# acoconnect-loader.js is the copy the coding assistant edits. handoff/original-sdk.js is the read-only
+# baseline it compares its edits against when it writes coding-result.json (changeTypes, triggers
+# before -> after), so the two start byte-for-byte identical by design.
+(stage/'acoconnect-loader.js').write_text(js, encoding='utf-8')
+(stage/'handoff'/'original-sdk.js').write_text(js, encoding='utf-8')
+(stage/'handoff'/(cust_slug + '-customer-signal-config.json')).write_text(json.dumps(cfg_copy, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+(stage/'handoff'/(cust_slug + '-implementation-review.md')).write_text(review_txt, encoding='utf-8')
+files = [stage/'acoconnect-loader.js', stage/'handoff'/'original-sdk.js', stage/'handoff'/(cust_slug + '-customer-signal-config.json'), stage/'handoff'/(cust_slug + '-implementation-review.md')]
+if not all(f.is_file() and f.stat().st_size > 0 for f in files): out('failed', reason='verify_failed', staging=stage.name)
+# Read each SDK copy back and compare it with the string that was meant to be written, so a short or
+# failed write is caught before the folder is moved into place. Then confirm the loader is in test mode.
+if any(f.read_text(encoding='utf-8') != js for f in files[:2]): out('failed', reason='verify_failed', staging=stage.name)
+if not re.search(r'\bfakeSignals\s*:\s*true', files[0].read_text(encoding='utf-8')): out('failed', reason='cannot_set_test_mode', file=sdk.name)
+json.loads(files[2].read_text())
+
+dest, backup = sites/host, None
+try:
+    if choice == 'new':
+        if dest.exists(): out('failed', reason='destination_appeared', staging=stage.name)
+    elif choice == 'replaced':
+        backup = sites/(host + '.bak-' + now.strftime('%Y%m%d-%H%M%S'))
+        dest.rename(backup)
+    elif choice == 'alongside':
+        dest = sites/(host + '-' + now.strftime('%Y%m%d'))
+        if dest.exists(): dest = sites/(host + '-' + now.strftime('%Y%m%d-%H%M%S'))
+    else:
+        out('failed', reason='bad_choice', staging=stage.name)
+    stage.rename(dest)
+except OSError as e:
+    out('failed', reason='rename_failed', staging=stage.name, backup=backup.name if backup else None)
+
+# 6. Record the handoff (after the copy, so the copy never contains its own handoff record).
+profile = json.loads(profile_path.read_text())
+profile['handoff'] = {
+    'openedInCodingAssistant': True, 'at': iso, 'choice': choice,
+    'folder': 'SDK-config-coding/sites/' + dest.name + '/',
+    'backupFolder': ('SDK-config-coding/sites/' + backup.name + '/') if backup else None,
+    'signalsHandedOver': handed,
+    'result': None,
+}
+profile_path.write_text(json.dumps(profile, indent=2))
+out('ok', choice=choice, folder=dest.name, backup=backup.name if backup else None, flagsMissing=[f for f in missing if f != 'fakeSignals'])
+"
+```
+
+Do **not** pass any of these files to `mcp__cowork__present_files`. The signal config copy must never be shown to the user, and the other files are for the coding assistant.
+
+**If the output has `"status": "ok"`** → run the E-4 analytics script with `handoffChoice` set to the `choice` value in the output (it can differ from the `CHOICE` passed in), then E-5.
+
+**If the output has `"status": "failed"`** (or the script errors) → run the E-4 analytics script with `handoffChoice = "failed"`. Output exactly one sentence: *"The handoff couldn't be completed (`<reason>`), so nothing was changed in your outputs or profile."* If the output names a `staging` folder, add: *"A partial copy was left in `SDK-config-coding/sites/<staging>/`; you can delete it."* If it names a `backup` folder, add: *"Your previous folder is safe as `SDK-config-coding/sites/<backup>/`."* Then re-render `feedback_saved`. Never delete or overwrite a folder to recover.
+
+##### E-4 — Record the choice in analytics
+
+Non-critical: if it fails, continue without comment.
+
+```bash
+SLUG="<SLUG>" RUN_ID="<RUN_ID>" HANDOFF_CHOICE="<declined|cancelled|new|replaced|alongside|failed>" python3 -c "
+import json, os, glob, pathlib, datetime
+d = glob.glob('/sessions/*/mnt/SDK-config-assistant/profiles')
+if d:
+    p = pathlib.Path(d[0]) / (os.environ['SLUG'] + '.analytics.json')
+    if p.exists():
+        a = json.loads(p.read_text())
+        now = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        for r in a.get('runHistory', []):
+            if r.get('runId') == os.environ['RUN_ID']:
+                r['handoffChoice'] = os.environ['HANDOFF_CHOICE']; r['handoffAt'] = now
+        a['lastUpdatedAt'] = now
+        p.write_text(json.dumps(a, indent=2, ensure_ascii=False) + '\n')
+print('OK')
+"
+```
+
+Store no paths or folder names in the sidecar.
+
+##### E-5 — Handoff complete and session close
+
+Show `mcp__visualize__show_widget` (title: `handoff_complete`, loading: `"Finishing handoff…"`). Category 1: if `show_widget` is unavailable, output the same content as plain text (≤5 lines). Substitute `FOLDER` with the folder written (the `folder` value from E-3) and `BACKUP_LINE` with `<div style="font-size:11px;color:var(--color-text-secondary);margin-top:8px">Your previous folder was kept as <code>SDK-config-coding/sites/BACKUP/</code>.</div>` when a backup was made, otherwise empty. Add `<div style="font-size:11px;color:#B25000;margin-top:8px">Note: FLAGS were not found in this SDK and were left unchanged.</div>` only when `flagsMissing` is non-empty.
+
+```html
+<div style="font-family:var(--font-sans);padding:1.25rem;max-width:480px">
+  <div style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin-bottom:8px">Handed off to the coding assistant</div>
+  <div style="font-size:12px;color:var(--color-text-secondary);line-height:1.6">
+    Copied to <code>SDK-config-coding/sites/FOLDER/</code> inside the folder added to this session, in test mode.<br><br>
+    To continue, open a terminal in that folder's <strong>SDK-config-coding</strong> directory, run <code>claude</code>, and say <strong>"let's work on FOLDER"</strong>. If this plugin isn't installed in Claude Code yet, install it there first.<br><br>
+    When you prepare the SDK for production there, the coding assistant can save a summary of what it fixed. This skill shows it the next time you load this profile.
+  </div>
+  BACKUP_LINE
+</div>
+```
+
+Describe the location only relative to the added folder. Never print a `/sessions/<id>/mnt/...` path, because it doesn't exist on the user's machine.
+
+After the widget, output the single close line: "Session closed. Run the skill again whenever you're ready for the next customer." The session is then closed exactly as for `'Session complete'`. Do not run 14b-D again, and do not retain any customer context, `runId` or analytics variables.
 
 ---
 
@@ -4722,7 +5121,9 @@ The sidecar file lives alongside the operational profile and is never used as an
       "issueAreas": ["browser_verification"],
       "reasonCodes": ["email_verification_required"],
       "feedbackId": "feedback-20260724-144305-b72c",
-      "feedbackSkipped": false
+      "feedbackSkipped": false,
+      "handoffChoice": "new",
+      "handoffAt": "2026-07-24T14:44:10Z"
     }
   ],
   "feedbackHistory": [
@@ -4740,6 +5141,8 @@ The sidecar file lives alongside the operational profile and is never used as an
   "lastUpdatedAt": "2026-07-24T14:43:07Z"
 }
 ```
+
+**`codingAssistantResults[]`** (optional, appended by Step 0c-H when a coding assistant result is found for a handed-off site): `readAt`, `completedAt`, `readiness`, `productionFlagsSet`, the signal lists `fixed` / `improved` / `excluded` / `unchanged` / `notStarted`, and per-signal `changeTypes` and one-sentence `reasons`. No code, selectors, paths or credentials.
 
 **Do not store in the sidecar:** app keys, passwords, access tokens, cookies, authentication headers, credential values, complete browser output, full DOM snapshots, full generated JavaScript, all inspection payloads, or complete operational profile objects. The sidecar is compact and aggregable — not a recovery artifact.
 
