@@ -63,6 +63,7 @@ If you have a staging domain, note it too — the skill uses it to safely trigge
 5. For any signal with an issue, applies a correction and has you retest — up to two correction attempts per signal (three test passes total).
 6. Any signal still failing after that is escalated: greyed out, excluded from the final config, and flagged for Acoustic Services follow-up.
 7. Outputs the final files, then offers a deployment choice on every tier — hand the config files over for the customer to host themselves (recommended), or upload to the Media Gallery (Connect CMS) for CDN delivery.
+8. Optionally hands the SDK off to the sdk-config-coding skill (same plugin, Claude Code only) at the end of the session (**Use coding assistant**, next to Close session). It copies the SDK, in test mode, and its report to `SDK-config-coding/sites/<hostname>/` inside the added folder. The coding assistant runs only in the Claude Code CLI. The handoff is one-way for code; when the coding assistant prepares the SDK for production it can save a short summary of what it fixed, which this skill shows the next time the profile is loaded.
 
 ## Output
 

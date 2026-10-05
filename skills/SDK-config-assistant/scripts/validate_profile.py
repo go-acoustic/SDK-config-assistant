@@ -10,7 +10,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-ALLOWED_MODES = {"test", "real"}
+# "production" is the name the skill writes. "real" is the older name for the same mode
+# and is still accepted, so profiles saved by earlier versions keep validating.
+ALLOWED_MODES = {"test", "production", "real"}
+PRODUCTION_MODES = {"production", "real"}
 ALLOWED_IMPLEMENTATION_MODES = {"guided", "website-assisted", "datalayer-assisted", "diff"}
 ALLOWED_STATUSES = {
     "Found automatically",
@@ -89,7 +92,7 @@ def validate(profile: dict[str, Any]) -> tuple[list[str], list[str]]:
     if unknown_signals:
         warnings.append(f"Unknown signals: {', '.join(unknown_signals)}.")
 
-    if mode == "real":
+    if mode in PRODUCTION_MODES:
         unresolved = [
             item
             for item in profile.get("mappings", [])
@@ -99,7 +102,7 @@ def validate(profile: dict[str, Any]) -> tuple[list[str], list[str]]:
         ]
         if unresolved:
             errors.append(
-                f"Real mode has {len(unresolved)} unresolved required mapping(s)."
+                f"Production mode has {len(unresolved)} unresolved required mapping(s)."
             )
 
     for index, mapping in enumerate(profile.get("mappings", [])):
@@ -147,8 +150,8 @@ def validate(profile: dict[str, Any]) -> tuple[list[str], list[str]]:
         warnings.append("No browser inspection evidence is recorded.")
     if not profile.get("mappings"):
         warnings.append("No signal mapping rows are recorded.")
-    if mode == "real" and profile.get("questions"):
-        warnings.append("Real mode still has unanswered questions.")
+    if mode in PRODUCTION_MODES and profile.get("questions"):
+        warnings.append("Production mode still has unanswered questions.")
 
     return errors, warnings
 
