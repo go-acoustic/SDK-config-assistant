@@ -4,7 +4,7 @@ A Claude Code skill that helps you build and test Acoustic Connect behavioral si
 
 ## Prerequisites
 
-- Claude Code (CLI, or the VS Code / JetBrains extension). The skill doesn't run in Claude Cowork or the Claude app. In Cowork, use [SDK-config-assistant](../SDK-config-assistant) instead.
+- Claude Code (CLI, or the VS Code / JetBrains extension). The skill doesn't run in Claude Cowork or the Claude app. In Cowork, use [sdk-config-assistant](../sdk-config-assistant) instead.
 - A configured SDK loader (`acoconnect-loader.js`) for your site, with the correct `appKey`, endpoint URL, and `initLogSignal` function present. The skill assumes you will be building the signal code within this framework.
 - Google Chrome (macOS).
 
