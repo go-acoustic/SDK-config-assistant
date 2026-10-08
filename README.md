@@ -4,7 +4,7 @@ Claude skills from Acoustic for building and testing Acoustic Connect JavaScript
 
 | Skill | Runs in | What it does |
 |---|---|---|
-| [`sdk-config-assistant`](skills/SDK-config-assistant/README.md) | Claude Desktop, **Cowork** tab | Inspects your live website and generates a ready-to-test SDK signal configuration, with guided validation and CMS upload. |
+| [`sdk-config-assistant`](skills/sdk-config-assistant/README.md) | Claude Desktop, **Cowork** tab | Inspects your live website and generates a ready-to-test SDK signal configuration, with guided validation and CMS upload. |
 | [`sdk-config-coding`](skills/sdk-config-coding/README.md) | **Claude Code** (CLI, VS Code, JetBrains) | Hand-edits, debugs and tests the JavaScript in an existing loader against the live site through Tampermonkey and the Chrome DevTools MCP, and prepares it for production. |
 
 The two work as a pair: `sdk-config-assistant` generates a configuration, and `sdk-config-coding` picks it up when a signal needs code written by hand. Both ship in one plugin, so a single install gives you both — each skill only activates in the host it supports.
